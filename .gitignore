@@ -1,0 +1,27 @@
+# Secrets. The keys live in .env and nowhere else.
+.env
+.env.*
+!.env.example
+
+# Own data and results. They can hold meeting text, so they never reach git.
+data/private/
+runs/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+dist/
+build/
+*.egg-info/
+
+# Editors and operating system
+.idea/
+.vscode/
+.DS_Store
