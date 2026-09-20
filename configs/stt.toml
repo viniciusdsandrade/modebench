@@ -1,0 +1,77 @@
+# The speech to text suite.
+#
+# The audio is your own: put WAV files and a manifest below data/private/stt.
+# See data/public/stt/README.md for the format of the manifest.
+
+manifest = "data/private/stt/manifest.yaml"
+runs_dir = "runs"
+
+[replay]
+# The audio goes out at the speed of real time, in chunks of this length.
+chunk_ms = 50
+# Silence after the audio, so that the last utterance can settle.
+tail_silence_ms = 3000
+close_grace_s = 1.0
+drain_timeout_s = 8.0
+connect_timeout_s = 15.0
+
+[normalization]
+expand_numbers = true
+expand_contractions = true
+drop_hesitations = true
+
+# ---------------------------------------------------------------------------
+# Providers. The query table goes to the connect URL unchanged.
+# Set private_data_ok = true when the data policy of your account permits
+# the audio of the manifest. A private manifest does not run without it.
+# Prices: the list prices of 2026-09. Check them against your account.
+# ---------------------------------------------------------------------------
+
+[providers.assemblyai]
+kind = "assemblyai"
+api_key_env = "ASSEMBLYAI_API_KEY"
+private_data_ok = false
+
+[providers.assemblyai.query]
+speech_model = "universal-3-5-pro"
+language_codes = ["pt"]
+speaker_labels = true
+
+[providers.assemblyai.billing]
+# AssemblyAI charges for the time that the connection is open.
+basis = "session_seconds"
+usd_per_hour = 0.45
+addons_usd_per_hour = { speaker_diarization = 0.12 }
+
+[providers.elevenlabs]
+kind = "elevenlabs"
+api_key_env = "ELEVENLABS_API_KEY"
+private_data_ok = false
+# The application sends 2000 ms of silence before the audio, because this
+# provider starts to transcribe after 2 s of audio. Set 2000 to measure that.
+preroll_silence_ms = 0
+
+[providers.elevenlabs.query]
+model_id = "scribe_v2_realtime"
+language_code = "pt"
+commit_strategy = "vad"
+include_timestamps = true
+
+[providers.elevenlabs.billing]
+# ElevenLabs charges for the audio that it receives.
+basis = "audio_seconds"
+usd_per_hour = 0.39
+
+[profiles.smoke]
+audios = 1
+repetitions = 1
+max_cost_usd = 0.25
+
+[profiles.quick]
+audios = 3
+repetitions = 2
+max_cost_usd = 2.00
+
+[profiles.full]
+repetitions = 3
+max_cost_usd = 10.00
