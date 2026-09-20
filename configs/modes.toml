@@ -1,0 +1,162 @@
+# Providers and modes.
+#
+# A mode is a provider, a model and the raw parameters that go to the API
+# unchanged. To add a mode, copy a [[modes]] block and change its id.
+# The preflight checks each model identifier against the model list of its
+# provider before a run spends money. Do the smoke profile after each change.
+
+# ---------------------------------------------------------------------------
+# Providers
+# ---------------------------------------------------------------------------
+
+[providers.openrouter]
+kind = "openai_compat"
+base_url = "https://openrouter.ai/api/v1"
+api_key_env = "OPENROUTER_API_KEY"
+# The guard accepts private data only if the mode sets
+# provider.data_collection = "deny".
+privacy = "openrouter"
+# OpenRouter reports the cost of each request in usage.cost.
+cost_source = "usage"
+headers = { "X-Title" = "modebench" }
+
+[providers.google]
+kind = "openai_compat"
+base_url = "https://generativelanguage.googleapis.com/v1beta/openai"
+api_key_env = "GEMINI_API_KEY"
+# A direct API has no data_collection parameter. The guard accepts private
+# data only if the mode sets private_data_ok = true.
+privacy = "attested"
+cost_source = "price_table"
+# This endpoint sends the usage block only on request.
+extra_body = { stream_options = { include_usage = true } }
+
+# ---------------------------------------------------------------------------
+# Gemini through OpenRouter, fixed on Google AI Studio.
+# Each of these modes names its direct twin in overhead_of, and the report
+# shows the time that the gateway adds.
+# Prices: Google list prices, valid to 2026-12-31. They are used only for the
+# estimate, because OpenRouter reports the true cost.
+# ---------------------------------------------------------------------------
+
+[[modes]]
+id = "gemini-3.7-flash-low-or"
+provider = "openrouter"
+model = "google/gemini-3.7-flash"
+family = "google"
+overhead_of = "gemini-3.7-flash-low-direct"
+price = { usd_per_mtok_in = 0.75, usd_per_mtok_out = 3.75, usd_per_mtok_cached_in = 0.075 }
+[modes.params]
+reasoning = { effort = "low" }
+provider = { order = ["google-ai-studio"], allow_fallbacks = false, data_collection = "deny" }
+
+[[modes]]
+id = "gemini-3.7-flash-medium-or"
+provider = "openrouter"
+model = "google/gemini-3.7-flash"
+family = "google"
+overhead_of = "gemini-3.7-flash-medium-direct"
+price = { usd_per_mtok_in = 0.75, usd_per_mtok_out = 3.75, usd_per_mtok_cached_in = 0.075 }
+[modes.params]
+reasoning = { effort = "medium" }
+provider = { order = ["google-ai-studio"], allow_fallbacks = false, data_collection = "deny" }
+
+[[modes]]
+id = "gemini-3.8-flash-low-or"
+provider = "openrouter"
+model = "google/gemini-3.8-flash"
+family = "google"
+overhead_of = "gemini-3.8-flash-low-direct"
+price = { usd_per_mtok_in = 0.75, usd_per_mtok_out = 3.75, usd_per_mtok_cached_in = 0.075 }
+[modes.params]
+reasoning = { effort = "low" }
+provider = { order = ["google-ai-studio"], allow_fallbacks = false, data_collection = "deny" }
+
+[[modes]]
+id = "gemini-3.8-flash-medium-or"
+provider = "openrouter"
+model = "google/gemini-3.8-flash"
+family = "google"
+overhead_of = "gemini-3.8-flash-medium-direct"
+price = { usd_per_mtok_in = 0.75, usd_per_mtok_out = 3.75, usd_per_mtok_cached_in = 0.075 }
+[modes.params]
+reasoning = { effort = "medium" }
+provider = { order = ["google-ai-studio"], allow_fallbacks = false, data_collection = "deny" }
+
+# ---------------------------------------------------------------------------
+# Gemini through the Google API, with no gateway.
+# Set private_data_ok = true only if the key is of the paid tier. The free
+# tier uses the content to improve the products of the vendor.
+# ---------------------------------------------------------------------------
+
+[[modes]]
+id = "gemini-3.7-flash-low-direct"
+provider = "google"
+model = "gemini-3.7-flash"
+family = "google"
+private_data_ok = false
+price = { usd_per_mtok_in = 0.75, usd_per_mtok_out = 3.75, usd_per_mtok_cached_in = 0.075 }
+[modes.params]
+reasoning_effort = "low"
+
+[[modes]]
+id = "gemini-3.7-flash-medium-direct"
+provider = "google"
+model = "gemini-3.7-flash"
+family = "google"
+private_data_ok = false
+price = { usd_per_mtok_in = 0.75, usd_per_mtok_out = 3.75, usd_per_mtok_cached_in = 0.075 }
+[modes.params]
+reasoning_effort = "medium"
+
+[[modes]]
+id = "gemini-3.8-flash-low-direct"
+provider = "google"
+model = "gemini-3.8-flash"
+family = "google"
+private_data_ok = false
+price = { usd_per_mtok_in = 0.75, usd_per_mtok_out = 3.75, usd_per_mtok_cached_in = 0.075 }
+[modes.params]
+reasoning_effort = "low"
+
+[[modes]]
+id = "gemini-3.8-flash-medium-direct"
+provider = "google"
+model = "gemini-3.8-flash"
+family = "google"
+private_data_ok = false
+price = { usd_per_mtok_in = 0.75, usd_per_mtok_out = 3.75, usd_per_mtok_cached_in = 0.075 }
+[modes.params]
+reasoning_effort = "medium"
+
+# ---------------------------------------------------------------------------
+# Control: a model of a different family, with no reasoning and with low
+# reasoning. These modes have no price table. The preflight reads their price
+# from the catalogue.
+# ---------------------------------------------------------------------------
+
+[[modes]]
+id = "gpt-5.6-luna-none-or"
+provider = "openrouter"
+model = "openai/gpt-5.6-luna"
+family = "openai"
+[modes.params]
+reasoning = { effort = "none" }
+provider = { data_collection = "deny" }
+
+[[modes]]
+id = "gpt-5.6-luna-low-or"
+provider = "openrouter"
+model = "openai/gpt-5.6-luna"
+family = "openai"
+[modes.params]
+reasoning = { effort = "low" }
+provider = { data_collection = "deny" }
+
+[[modes]]
+id = "glm-5.3-flash-or"
+provider = "openrouter"
+model = "z-ai/glm-5.3-flash"
+family = "z-ai"
+[modes.params]
+provider = { data_collection = "deny" }
