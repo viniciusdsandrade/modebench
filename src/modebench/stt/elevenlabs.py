@@ -110,7 +110,16 @@ class ElevenLabsParser:
             return [SttEvent(kind=OTHER, message="not a JSON object")]
         kind = message.get("message_type")
         text = message.get("text")
-        words = text if isinstance(text, str) else ""
+        if isinstance(text, str) and text:
+            words = text
+        else:
+            word_list = message.get("words")
+            if isinstance(word_list, list):
+                words = " ".join(
+                    str(w.get("text", "")) for w in word_list if isinstance(w, dict)
+                ).strip()
+            else:
+                words = ""
         if kind == "session_started":
             return [SttEvent(kind=OPEN)]
         if kind == "partial_transcript":

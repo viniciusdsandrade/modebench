@@ -54,7 +54,7 @@ def test_cli_compare_help() -> None:
     assert result.exit_code == 0
     out = plain(result.stdout)
     assert "--baseline" in out
-    assert "--p95-ratio" in out
+    assert "--run" in out
 
 
 def test_cli_unknown_suite_fails_with_exit_error() -> None:
