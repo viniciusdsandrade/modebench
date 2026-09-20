@@ -8,6 +8,9 @@ recorded as a judge failure: it is never replaced by a guess.
 """
 
 import json
+import re
+import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -16,11 +19,14 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from modebench.config import Mode, Price, ProviderConfig
 from modebench.hashing import sha256_text
 from modebench.providers.base import ChatProvider, ChatRequest
-from modebench.providers.metrics import derive_metrics
+from modebench.providers.metrics import assumed_cost, derive_metrics
 from modebench.quality.deterministic import is_refusal
 from modebench.storage.records import ScoreRecord
 
 SCORER = "judge"
+
+# The tags that divide the message of the judge into blocks.
+_BLOCK_TAG = re.compile(r"<(/?)(new_stretch|expected|answer)\b", re.IGNORECASE)
 
 
 class JudgeVerdict(BaseModel):
@@ -50,12 +56,17 @@ class JudgeItem:
 
 @dataclass(frozen=True, slots=True)
 class JudgeResult:
-    """A verdict, or the reason for which there is none."""
+    """A verdict, or the reason for which there is none.
+
+    `cost_usd` is the measured cost of the attempts. `assumed_cost_usd` is
+    what the cost ceiling assumes for the attempts that have no usage block.
+    """
 
     verdict: JudgeVerdict | None
     attempts: int
     error: str | None = None
     cost_usd: float = 0.0
+    assumed_cost_usd: float = 0.0
 
 
 class Judge(Protocol):
@@ -85,21 +96,31 @@ def parse_verdict(text: str, key_points: int) -> JudgeVerdict:
     return verdict
 
 
+def inert(text: str) -> str:
+    """Return `text` with each block tag of the judge message made inert.
+
+    The transcript and the answer are data that the benchmark does not
+    control. A text that holds `</answer>` could end its block early and give
+    the judge instructions of its own, so the `<` of such a tag becomes `&lt;`.
+    """
+    return _BLOCK_TAG.sub(lambda match: f"&lt;{match.group(1)}{match.group(2)}", text)
+
+
 def render_judge_message(item: JudgeItem) -> str:
-    """Return the user message of a judge request."""
-    points = "\n".join(f"- {point}" for point in item.key_points) or "(none)"
+    """Return the user message of a judge request. Only this function writes block tags."""
+    points = "\n".join(f"- {inert(point)}" for point in item.key_points) or "(none)"
     return (
         "<new_stretch>\n"
-        f"{item.fresh_text}\n"
+        f"{inert(item.fresh_text)}\n"
         "</new_stretch>\n\n"
         "<expected>\n"
         f"noise_input: {'true' if item.expect_refusal else 'false'}\n"
-        f"gold_question: {item.gold_question or '(none)'}\n"
+        f"gold_question: {inert(item.gold_question) or '(none)'}\n"
         f"key_points:\n{points}\n"
-        f"reference_answer: {item.reference_answer or '(none)'}\n"
+        f"reference_answer: {inert(item.reference_answer) or '(none)'}\n"
         "</expected>\n\n"
         "<answer>\n"
-        f"{item.answer}\n"
+        f"{inert(item.answer)}\n"
         "</answer>"
     )
 
@@ -117,6 +138,9 @@ class LlmJudge:
         price: Price | None,
         max_attempts: int,
         timeout_s: float,
+        assumed_cost_usd: float = 0.0,
+        pause_after_error_s: float = 0.0,
+        sleep: Callable[[float], None] = time.sleep,
     ) -> None:
         self._provider = provider
         self._provider_config = provider_config
@@ -125,23 +149,40 @@ class LlmJudge:
         self._price = price
         self._max_attempts = max_attempts
         self._timeout_s = timeout_s
+        self._assumed_cost_usd = assumed_cost_usd
+        self._pause_after_error_s = pause_after_error_s
+        self._sleep = sleep
         self._cache: dict[str, JudgeVerdict] = {}
 
+    def close(self) -> None:
+        """Close the HTTP client of the provider, if the provider has one."""
+        closer = getattr(self._provider, "close", None)
+        if callable(closer):
+            closer()
+
     def judge(self, item: JudgeItem) -> JudgeResult:
-        """Ask the model until a verdict is valid or the attempts are used."""
+        """Ask the model until a verdict is valid or the attempts are used.
+
+        A request that fails is followed by a pause that grows with each
+        attempt, so that a rate limit of the endpoint can clear.
+        """
         message = render_judge_message(item)
         key = sha256_text(message)
         if key in self._cache:
             return JudgeResult(verdict=self._cache[key], attempts=0)
         cost = 0.0
+        assumed = 0.0
         error = "no attempt was made"
         for attempt in range(1, self._max_attempts + 1):
             request = ChatRequest(system=self._prompt, user=message)
             outcome = self._provider.stream_chat(self._mode, request, self._timeout_s)
             metrics = derive_metrics(outcome, self._provider_config, self._price)
             cost += metrics.cost_usd or 0.0
+            assumed += assumed_cost(outcome, metrics, self._assumed_cost_usd)
             if not outcome.ok:
                 error = f"{outcome.error_kind}: {outcome.error_message}"
+                if attempt < self._max_attempts and self._pause_after_error_s > 0:
+                    self._sleep(self._pause_after_error_s * attempt)
                 continue
             try:
                 verdict = parse_verdict(outcome.answer, len(item.key_points))
@@ -149,8 +190,16 @@ class LlmJudge:
                 error = str(exc)
                 continue
             self._cache[key] = verdict
-            return JudgeResult(verdict=verdict, attempts=attempt, cost_usd=cost)
-        return JudgeResult(verdict=None, attempts=self._max_attempts, error=error, cost_usd=cost)
+            return JudgeResult(
+                verdict=verdict, attempts=attempt, cost_usd=cost, assumed_cost_usd=assumed
+            )
+        return JudgeResult(
+            verdict=None,
+            attempts=self._max_attempts,
+            error=error,
+            cost_usd=cost,
+            assumed_cost_usd=assumed,
+        )
 
 
 class FakeJudge:

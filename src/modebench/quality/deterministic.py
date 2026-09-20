@@ -4,6 +4,7 @@ The rules are those of the pre-prompt of the application: refuse only real
 noise, never return nothing, and start with the question, not with a preamble.
 """
 
+import re
 from dataclasses import dataclass
 
 from modebench.dataset.variants import strip_accents
@@ -40,15 +41,15 @@ _REFUSAL_MARKERS: tuple[str, ...] = (
     "there is nothing to answer",
 )
 
-_PREAMBLE_STARTS: tuple[str, ...] = (
+# Openings of courtesy. Each one must be whole words: "ola" is a preamble and
+# "Olavo" is a name, "entendi" is a preamble and "entendimento" is a noun.
+_PREAMBLE_WORDS: tuple[str, ...] = (
     "claro",
     "com certeza",
     "certamente",
     "aqui esta",
     "aqui vai",
-    "segue ",
-    "com base n",
-    "de acordo com a transcri",
+    "segue",
     "analisando",
     "entendi",
     "ola",
@@ -61,6 +62,14 @@ _PREAMBLE_STARTS: tuple[str, ...] = (
     "based on",
     "according to the transcript",
     "let me",
+)
+# Openings whose last word has more than one ending ("com base na", "com base no").
+_PREAMBLE_PREFIXES: tuple[str, ...] = (
+    "com base n",
+    "de acordo com a transcri",
+)
+_PREAMBLE_PATTERN = re.compile(
+    "(?:" + "|".join(re.escape(start) for start in _PREAMBLE_WORDS) + r")(?!\w)"
 )
 
 _INCOMPLETE_REMARKS: tuple[str, ...] = (
@@ -101,7 +110,9 @@ def is_refusal(answer: str) -> bool:
 def has_preamble(answer: str) -> bool:
     """Return True if the answer opens with courtesy or says that the transcript is cut."""
     plain = _plain(answer)
-    if any(plain.startswith(start) for start in _PREAMBLE_STARTS):
+    if _PREAMBLE_PATTERN.match(plain) is not None:
+        return True
+    if any(plain.startswith(start) for start in _PREAMBLE_PREFIXES):
         return True
     return any(remark in plain for remark in _INCOMPLETE_REMARKS)
 
