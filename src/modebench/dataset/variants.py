@@ -13,6 +13,7 @@ Each function is deterministic. A seed and a case always give the same text.
 
 import random
 import unicodedata
+from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -21,6 +22,7 @@ from typing import overload
 from modebench.config import NoiseKind, Profile
 from modebench.dataset.loader import LoadedDataset
 from modebench.dataset.schema import Case, DatasetFile, Line
+from modebench.errors import DatasetError
 from modebench.hashing import stable_seed
 
 TRAILING_PUNCTUATION = ".,;:!?"
@@ -327,6 +329,16 @@ def build_variants(datasets: Sequence[LoadedDataset], profile: Profile, seed: in
     for kind in profile.noise_kinds:
         for instance in range(1, profile.noise_instances + 1):
             variants.append(noise_variant(kind, instance, seed))
+    counts = Counter(variant.variant_id for variant in variants)
+    duplicates = sorted(variant_id for variant_id, count in counts.items() if count > 1)
+    if duplicates:
+        # A file checks its own identifiers. Two files, or a case with the
+        # identifier of a generated noise case, can still collide, and equal
+        # identifiers would put two cases in one row of each result.
+        raise DatasetError(
+            f"these variants occur more than one time: {', '.join(duplicates)}. "
+            "Give each case an identifier that no other dataset uses"
+        )
     return variants
 
 

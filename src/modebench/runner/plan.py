@@ -21,7 +21,11 @@ from modebench.providers.base import ChatRequest
 
 @dataclass(frozen=True, slots=True)
 class WorkItem:
-    """One variant in one accumulated transcript. `prior` has no nonce line yet."""
+    """One variant in one accumulated transcript. `prior` has no nonce line yet.
+
+    `private` is True if any text of the request is private: the variant, or a
+    line that an earlier click of the meeting left in `prior`.
+    """
 
     item_id: str
     suite: str
@@ -31,6 +35,7 @@ class WorkItem:
     scenario_id: str | None = None
     click_index: int | None = None
     cache_state: str = "cold"
+    private: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -92,6 +97,7 @@ def build_items(
                     variant=variant,
                     duration_min=duration,
                     prior=fillers[duration] + variant.earlier,
+                    private=variant.private,
                 )
             )
     scenarios = build_scenarios(
@@ -114,6 +120,7 @@ def build_items(
                     scenario_id=click.scenario_id,
                     click_index=click.click_index,
                     cache_state=click.cache_state,
+                    private=click.private,
                 )
             )
     return items

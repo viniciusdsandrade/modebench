@@ -6,11 +6,27 @@ skip the guards.
 """
 
 from collections.abc import Iterable, Sequence
+from urllib.parse import urlsplit
 
 from modebench.config import Mode, ProviderConfig
 from modebench.errors import CostCeilingExceeded, PrivacyViolation
 
 FREE_SUFFIX = ":free"
+OPENROUTER_HOST = "openrouter.ai"
+
+
+def is_openrouter(provider: ProviderConfig) -> bool:
+    """Return True if the route goes through OpenRouter.
+
+    The `privacy` label of the config says so, and the host of the endpoint
+    says so too. The host decides when the two do not agree, so a provider
+    with a wrong label cannot send private data to OpenRouter with no
+    `data_collection = "deny"`.
+    """
+    if provider.privacy == "openrouter":
+        return True
+    host = (urlsplit(provider.base_url).hostname or "").lower()
+    return host == OPENROUTER_HOST or host.endswith("." + OPENROUTER_HOST)
 
 
 def privacy_problems(mode: Mode, provider: ProviderConfig) -> list[str]:
@@ -22,12 +38,13 @@ def privacy_problems(mode: Mode, provider: ProviderConfig) -> list[str]:
     must say `private_data_ok = true`, which is the statement of the operator
     that the account has a data policy that permits private data.
     """
-    if provider.privacy == "local":
+    through_openrouter = is_openrouter(provider)
+    if provider.privacy == "local" and not through_openrouter:
         return []
     problems: list[str] = []
     if FREE_SUFFIX in mode.model.lower():
         problems.append("the model is a :free variant")
-    if provider.privacy == "openrouter":
+    if through_openrouter:
         routing = mode.params.get("provider")
         denies = isinstance(routing, dict) and routing.get("data_collection") == "deny"
         if not denies:

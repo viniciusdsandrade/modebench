@@ -16,13 +16,18 @@ from modebench.dataset.variants import RenderLine, Variant
 
 @dataclass(frozen=True, slots=True)
 class MeetingClick:
-    """One click: where it is in the meeting and what the transcript held before it."""
+    """One click: where it is in the meeting and what the transcript held before it.
+
+    `private` is True if the case of this click or of an earlier click of the
+    meeting is private, because the earlier stretch holds the text of those cases.
+    """
 
     scenario_id: str
     click_index: int
     minute: int
     variant: Variant
     prior: tuple[RenderLine, ...]
+    private: bool = False
 
     @property
     def cache_state(self) -> str:
@@ -57,12 +62,14 @@ def build_scenarios(
         scenario_id = f"meeting-{scenario_index + 1}"
         timeline: list[RenderLine] = []
         filler_used = 0
+        private = False
         clicks: list[MeetingClick] = []
         for click_index, minute in enumerate(click_minutes):
             filler_lines = build_filler(filler, minute, words_per_minute, seed)
             timeline.extend(filler_lines[filler_used:])
             filler_used = max(filler_used, len(filler_lines))
             variant = pool[(scenario_index * len(click_minutes) + click_index) % len(pool)]
+            private = private or variant.private
             clicks.append(
                 MeetingClick(
                     scenario_id=scenario_id,
@@ -70,6 +77,7 @@ def build_scenarios(
                     minute=minute,
                     variant=variant,
                     prior=tuple(timeline),
+                    private=private,
                 )
             )
             timeline.extend(replace(line, partial=False) for line in variant.fresh)
