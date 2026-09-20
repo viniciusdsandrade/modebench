@@ -46,3 +46,7 @@ def read_jsonl(path: Path) -> list[dict[str, Any]]:
             if line.strip():
                 records.append(json.loads(line))
     return records
+
+
+# Convenience alias
+JsonlWriter = RawLog

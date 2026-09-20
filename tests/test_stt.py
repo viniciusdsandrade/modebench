@@ -1,6 +1,7 @@
 """Tests for STT Portuguese normalization, WER/CER metrics, dialects (AssemblyAI, ElevenLabs), and fake STT server."""
 
 import json
+from pathlib import Path
 
 import pytest
 
@@ -50,8 +51,8 @@ def test_wer_and_cer_computations() -> None:
 
 def test_session_cost_distinguishes_audio_vs_session_seconds() -> None:
     # $1.50 per hour
-    billing_audio = SttBilling(total_usd_per_hour=1.50, basis="audio_seconds")
-    billing_session = SttBilling(total_usd_per_hour=1.50, basis="session_seconds")
+    billing_audio = SttBilling(usd_per_hour=1.50, basis="audio_seconds")
+    billing_session = SttBilling(usd_per_hour=1.50, basis="session_seconds")
 
     # 1 hour audio (3,600,000 ms), 2 hours session (7,200,000 ms)
     audio_ms = 3_600_000.0
@@ -182,9 +183,9 @@ def test_elevenlabs_adapter_and_parser() -> None:
 def test_collect_finals_calculates_latency_against_reference() -> None:
     audio = AudioItem(
         id="aud-1",
-        wav_path="test.wav",
+        wav=Path("test.wav"),
         utterances=[
-            ReferenceUtterance(index=0, start_ms=200, end_ms=800, text="Olá mundo", speaker="A"),
+            ReferenceUtterance(start_ms=200, end_ms=800, text="Olá mundo", speaker="A"),
         ],
     )
 

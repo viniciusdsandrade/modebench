@@ -62,53 +62,78 @@ def test_run_store_and_jsonl_roundtrip(tmp_path: Path) -> None:
         judge_model="fake-judge",
         modes_json='[{"id":"m1","provider":"local","model":"fake/m1"}]',
     )
-    store.save_run(run_record)
+    store.create_run(run_record)
 
-    fetched_run = store.run("run-test-01")
+    fetched_run = store.load_run("run-test-01")
     assert fetched_run is not None
     assert fetched_run.run_id == "run-test-01"
     assert fetched_run.profile == "smoke"
     assert store.latest_run_id("analyze") == "run-test-01"
 
     req = RequestRecord(
-        seq=1,
         run_id="run-test-01",
-        suite="analyze",
+        seq=1,
         mode_id="m1",
+        suite="analyze",
         item_id="item-01",
+        case_id="case-01",
+        variant_id="var-01",
+        variant_kind="truncation",
+        truncation_pct=100,
+        asr_wer=0.0,
+        noise_kind=None,
+        duration_min=5,
         repetition=1,
         warmup=False,
+        scenario_id=None,
+        click_index=None,
         cache_state="cold",
+        expect_refusal=False,
+        private=False,
+        started_at="2026-09-01T12:00:01Z",
         ok=True,
-        total_ms=1200.0,
+        error_kind=None,
+        error_message=None,
+        http_status=200,
+        first_chunk_ms=200.0,
+        ttft_ms=300.0,
+        first_reasoning_ms=None,
         ttfat_ms=650.0,
+        total_ms=1200.0,
         prompt_tokens=100,
         completion_tokens=50,
+        reasoning_tokens=None,
+        answer_tokens=50,
+        cached_tokens=None,
+        tok_per_s=50.0,
+        served_by="local",
         cost_usd=0.0002,
         cost_source="usage",
+        prompt_chars=400,
+        prompt_sha="sha256-prompt",
         answer="Resposta completa.",
     )
-    store.save_request(req)
+    req_id = store.insert_request(req)
 
-    requests = store.requests("run-test-01")
+    requests = store.load_requests("run-test-01")
     assert len(requests) == 1
-    assert requests[0].item_id == "item-01"
-    assert requests[0].ttfat_ms == 650.0
+    assert requests[0].id == req_id
+    assert requests[0].record.item_id == "item-01"
+    assert requests[0].record.ttfat_ms == 650.0
 
     score = ScoreRecord(
-        run_id="run-test-01",
-        request_id="req-01",
         scorer="deterministic",
-        metric="non_empty",
+        name="non_empty",
         value=1.0,
         detail="true",
     )
-    store.save_score(score)
+    store.insert_scores(req_id, [score])
 
-    scores = store.scores("run-test-01")
+    scores = store.load_scores("run-test-01")
     assert len(scores) == 1
-    assert scores[0].metric == "non_empty"
-    assert scores[0].value == 1.0
+    assert req_id in scores
+    assert "deterministic.non_empty" in scores[req_id]
+    assert scores[req_id]["deterministic.non_empty"].value == 1.0
 
     # Test JSONL writer and reader
     jsonl_path = tmp_path / "events.jsonl"

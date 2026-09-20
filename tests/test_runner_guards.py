@@ -12,7 +12,7 @@ from modebench.config import (
     ProviderConfig,
     TranscriptConfig,
 )
-from modebench.dataset.schema import FillerFile, Line
+from modebench.dataset.schema import FillerBlock, FillerFile, Line
 from modebench.dataset.transcript import Labels
 from modebench.dataset.variants import RenderLine, Variant
 from modebench.errors import CostCeilingExceeded, PrivacyViolation
@@ -121,7 +121,7 @@ def test_build_plan_interleaves_round_robin_with_warmup() -> None:
     variant = Variant(
         variant_id="var-1",
         case_id="case-1",
-        kind="baseline",
+        kind="truncation",
         truncation_pct=100,
         asr_wer=0.0,
         noise_kind=None,
@@ -138,16 +138,23 @@ def test_build_plan_interleaves_round_robin_with_warmup() -> None:
         design="star",
         durations_min=[5],
         baseline_duration_min=5,
-        truncations_pct=[100],
-        asr_wers=[0.0],
-        noises=[],
-        warmup=True,
+        truncations=[100],
+        noise_kinds=[],
+        warmup=1,
         repetitions=2,
+        max_cost_usd=10.0,
     )
 
-    filler = FillerFile(segments=[Line(speaker="system", text="Discussao geral.")])
+    filler = FillerFile(
+        blocks=[
+            FillerBlock(
+                topic="geral",
+                lines=[Line(speaker="system", text="Discussao geral.")],
+            )
+        ]
+    )
     transcript_cfg = TranscriptConfig(words_per_minute=120)
-    meeting_cfg = MeetingConfig(enabled=False, click_minutes=[5])
+    meeting_cfg = MeetingConfig(click_minutes=[5])
 
     items = build_items(
         variants=[variant],
@@ -164,7 +171,7 @@ def test_build_plan_interleaves_round_robin_with_warmup() -> None:
         fake_mode("mode-B"),
     ]
 
-    plan = build_plan(items, modes, profile)
+    plan = build_plan(items, [m.id for m in modes], profile.repetitions, profile.warmup)
     # Warmup + 2 repetitions = 3 cycles for 2 modes = 6 requests
     assert len(plan) == 6
 
@@ -181,7 +188,7 @@ def test_estimate_plan_cost_uses_prices() -> None:
     variant = Variant(
         variant_id="var-1",
         case_id="case-1",
-        kind="baseline",
+        kind="truncation",
         truncation_pct=100,
         asr_wer=0.0,
         noise_kind=None,
@@ -194,15 +201,23 @@ def test_estimate_plan_cost_uses_prices() -> None:
         reference_answer="A",
     )
 
-    filler = FillerFile(segments=[Line(speaker="system", text="Discussao.")])
+    filler = FillerFile(
+        blocks=[
+            FillerBlock(
+                topic="geral",
+                lines=[Line(speaker="system", text="Discussao.")],
+            )
+        ]
+    )
     profile = Profile(
         design="star",
         durations_min=[5],
         baseline_duration_min=5,
-        truncations_pct=[100],
-        asr_wers=[0.0],
-        noises=[],
+        truncations=[100],
+        noise_kinds=[],
         repetitions=1,
+        warmup=0,
+        max_cost_usd=10.0,
     )
 
     items = build_items(
@@ -210,7 +225,7 @@ def test_estimate_plan_cost_uses_prices() -> None:
         profile=profile,
         filler=filler,
         transcript=TranscriptConfig(words_per_minute=100),
-        meeting=MeetingConfig(enabled=False),
+        meeting=MeetingConfig(),
         seed=1,
     )
 
@@ -221,8 +236,8 @@ def test_estimate_plan_cost_uses_prices() -> None:
         price=Price(usd_per_mtok_in=2.0, usd_per_mtok_out=5.0),
     )
 
-    plan = build_plan(items, [mode], profile)
-    labels = Labels(earlier="EARLIER", fresh="FRESH", answer="ANSWER")
+    plan = build_plan(items, [mode.id], profile.repetitions, profile.warmup)
+    labels = Labels(mic="MIC", system="SYSTEM", partial_marker="*")
     cost_cfg = CostConfig()
     estimate = estimate_cost(
         plan=plan,

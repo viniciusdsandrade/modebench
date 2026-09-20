@@ -15,10 +15,12 @@ import random
 import unicodedata
 from collections.abc import Sequence
 from dataclasses import dataclass
+from pathlib import Path
+from typing import overload
 
 from modebench.config import NoiseKind, Profile
 from modebench.dataset.loader import LoadedDataset
-from modebench.dataset.schema import Case, Line
+from modebench.dataset.schema import Case, DatasetFile, Line
 from modebench.hashing import stable_seed
 
 TRAILING_PUNCTUATION = ".,;:!?"
@@ -142,15 +144,9 @@ def _corrupt(word: str, rng: random.Random) -> str:
     return rng.choice(candidates)
 
 
-def apply_asr_noise(
+def _apply_asr_noise_lines(
     lines: Sequence[RenderLine], wer: float, rng: random.Random
 ) -> tuple[RenderLine, ...]:
-    """Return the lines with word errors at the rate `wer`.
-
-    The number of errors is exact: `wer` times the number of words, rounded.
-    Six errors in ten are substitutions, a quarter are deletions and the
-    others are insertions, which is the usual mix of a streaming recogniser.
-    """
     tokens: list[tuple[int, str]] = [
         (index, word) for index, line in enumerate(lines) for word in line.text.split()
     ]
@@ -183,6 +179,47 @@ def apply_asr_noise(
         for line, words in zip(lines, rebuilt, strict=True)
         if words
     )
+
+
+@overload
+def apply_asr_noise(
+    lines: str,
+    wer: float,
+    rng: random.Random | None = None,
+    *,
+    seed: int | None = None,
+) -> str: ...
+
+
+@overload
+def apply_asr_noise(
+    lines: Sequence[RenderLine],
+    wer: float,
+    rng: random.Random | None = None,
+    *,
+    seed: int | None = None,
+) -> tuple[RenderLine, ...]: ...
+
+
+def apply_asr_noise(
+    lines: Sequence[RenderLine] | str,
+    wer: float,
+    rng: random.Random | None = None,
+    *,
+    seed: int | None = None,
+) -> tuple[RenderLine, ...] | str:
+    """Return the lines with word errors at the rate `wer`.
+
+    The number of errors is exact: `wer` times the number of words, rounded.
+    Six errors in ten are substitutions, a quarter are deletions and the
+    others are insertions, which is the usual mix of a streaming recogniser.
+    """
+    actual_rng = rng if rng is not None else random.Random(seed if seed is not None else 0)
+    if isinstance(lines, str):
+        input_lines = [RenderLine(speaker="mic", text=lines)]
+        corrupted = _apply_asr_noise_lines(input_lines, wer, actual_rng)
+        return corrupted[0].text if corrupted else ""
+    return _apply_asr_noise_lines(lines, wer, actual_rng)
 
 
 def _render(lines: Sequence[Line]) -> tuple[RenderLine, ...]:
@@ -291,3 +328,15 @@ def build_variants(datasets: Sequence[LoadedDataset], profile: Profile, seed: in
         for instance in range(1, profile.noise_instances + 1):
             variants.append(noise_variant(kind, instance, seed))
     return variants
+
+
+def generate_variants(
+    cases: Sequence[Case], profile: Profile, seed: int, *, private: bool = False
+) -> list[Variant]:
+    """Return each variant of `cases` that the profile asks for."""
+    dataset = LoadedDataset(
+        path=Path("synthetic.yaml"),
+        private=private,
+        data=DatasetFile(cases=list(cases)),
+    )
+    return build_variants([dataset], profile, seed)

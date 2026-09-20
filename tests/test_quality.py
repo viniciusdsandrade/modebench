@@ -115,7 +115,7 @@ def test_render_judge_message_keeps_evaluation_blind() -> None:
     assert "quando lançamos o produto?" in prompt
     assert "<expected>" in prompt
     assert "no fim do mês" in prompt
-    assert "<candidate>" in prompt
+    assert "<answer>" in prompt
     assert "Lançaremos a versão beta" in prompt
     # Blind: ensure prompt does not carry provider tags
     assert "openrouter" not in prompt.lower()
@@ -133,7 +133,7 @@ def test_verdict_records_transforms_verdict_into_records() -> None:
     )
 
     records = verdict_records(verdict, key_points=2)
-    record_map = {r.metric: r.value for r in records}
+    record_map = {r.name: r.value for r in records}
     assert record_map["refused"] == 0.0
     assert record_map["inferred_question_correct"] == 1.0
     assert record_map["key_points_covered"] == 2.0

@@ -8,7 +8,7 @@ from modebench.config import Profile
 from modebench.dataset.importer import ImportOptions, import_cases
 from modebench.dataset.loader import load_dataset, load_filler
 from modebench.dataset.meeting import build_scenarios
-from modebench.dataset.schema import Case, FillerFile, Line
+from modebench.dataset.schema import Case, FillerBlock, FillerFile, Line
 from modebench.dataset.transcript import (
     EARLIER_HEADING,
     NEW_HEADING,
@@ -33,8 +33,9 @@ def test_seed_public_dataset_loads_valid_cases_and_filler() -> None:
     filler_file = load_filler(filler_path)
 
     assert len(cases_file.cases) == 20
-    assert len(filler_file.segments) > 0
-    assert cases_file.cases[0].gold_question != ""
+    assert len(filler_file.blocks) > 0
+    assert cases_file.cases[0].question is not None
+    assert cases_file.cases[0].question.text != ""
     assert len(cases_file.cases[0].key_points) > 0
 
 
@@ -72,7 +73,7 @@ def test_generate_variants_creates_baseline_and_noise() -> None:
     case = Case(
         id="test-01",
         context=[Line(speaker="mic", text="Qual é o valor final do contrato?")],
-        gold_question="Qual é o valor final do contrato?",
+        question=Line(speaker="mic", text="Qual é o valor final do contrato?"),
         key_points=["cem mil reais", "parcelado em três vezes"],
         reference_answer="O valor final é cem mil reais.",
     )
@@ -81,18 +82,20 @@ def test_generate_variants_creates_baseline_and_noise() -> None:
         design="star",
         durations_min=[5, 15],
         baseline_duration_min=5,
-        truncations_pct=[100, 50],
-        asr_wers=[0.0],
-        noises=["empty", "stray_pairs"],
+        truncations=[100, 50],
+        asr_wers=[0.2],
+        noise_kinds=["empty", "two_words"],
         repetitions=1,
+        max_cost_usd=10.0,
     )
 
     variants = generate_variants([case], profile, seed=123)
 
     kinds = {v.kind for v in variants}
-    assert "baseline" in kinds
     assert "truncation" in kinds
+    assert "asr_noise" in kinds
     assert "noise" in kinds
+    assert any(v.is_baseline for v in variants)
 
     # Noise variants expect refusal
     noise_vars = [v for v in variants if v.kind == "noise"]
@@ -116,16 +119,21 @@ def test_render_window_formats_transcript_with_nonces() -> None:
 
 def test_meeting_scenario_chains_clicks_with_growing_history() -> None:
     filler = FillerFile(
-        segments=[
-            Line(speaker="system", text="Discussão sobre a meta trimestral."),
-            Line(speaker="mic", text="Alinhamos os pontos pendentes."),
+        blocks=[
+            FillerBlock(
+                topic="reuniao",
+                lines=[
+                    Line(speaker="system", text="Discussão sobre a meta trimestral."),
+                    Line(speaker="mic", text="Alinhamos os pontos pendentes."),
+                ],
+            )
         ]
     )
 
     v1 = Variant(
         variant_id="c1-b",
         case_id="c1",
-        kind="baseline",
+        kind="truncation",
         truncation_pct=100,
         asr_wer=0.0,
         noise_kind=None,
@@ -141,7 +149,7 @@ def test_meeting_scenario_chains_clicks_with_growing_history() -> None:
     v2 = Variant(
         variant_id="c2-b",
         case_id="c2",
-        kind="baseline",
+        kind="truncation",
         truncation_pct=100,
         asr_wer=0.0,
         noise_kind=None,
@@ -226,7 +234,6 @@ def test_import_cases_from_sqlite(tmp_path: Path) -> None:
     cases = import_cases(db_file, ImportOptions(task="recent_question", windowed_only=True))
     assert len(cases) == 1
     case = cases[0]
-    assert case.id == "imported-m1-i10"
-    assert case.private is True
+    assert case.id == "m1-i10"
     assert case.reference_answer == "O custo estimado e dez mil reais."
     assert any("Pergunta sobre os custos" in line.text for line in case.context)
