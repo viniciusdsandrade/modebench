@@ -1,0 +1,359 @@
+# Twenty synthetic Analyze cases in Brazilian Portuguese.
+# Each case is what was said before a click on Analyze: some lines of context,
+# the question, and the key points that a good answer has. All names, companies
+# and numbers are invented. `mic` is the user, and `system` is the other side
+# of the call.
+version: 1
+language: pt-BR
+visibility: public
+cases:
+  - id: prazo-entrega-pagamentos
+    tags: [prazo]
+    context:
+      - speaker: mic
+        text: "A gente fechou o escopo do módulo de pagamentos na semana passada, e o time estimou três sprints de duas semanas."
+      - speaker: system
+        text: "Certo, e vocês começam quando?"
+      - speaker: mic
+        text: "Começamos no dia cinco de outubro, sem nenhuma folga planejada no meio."
+    question:
+      speaker: system
+      text: "Então considerando esse início e as três sprints, em que data vocês conseguem colocar o módulo de pagamentos em produção?"
+    key_points:
+      - "são três sprints de duas semanas, seis semanas no total"
+      - "o início é no dia cinco de outubro"
+      - "a entrega fica para meados de novembro, por volta do dia dezesseis"
+
+  - id: custo-infra-mensal
+    tags: [custo]
+    context:
+      - speaker: mic
+        text: "Hoje a gente paga dezoito mil reais por mês no provedor atual, contando banco e armazenamento."
+      - speaker: mic
+        text: "Na proposta nova, o mesmo ambiente sai por doze mil e quinhentos, mas tem uma taxa única de migração de nove mil."
+      - speaker: system
+        text: "Entendi, então tem economia mensal, mas tem esse custo inicial."
+    question:
+      speaker: system
+      text: "Fazendo a conta com esses números, em quantos meses a economia mensal paga a taxa de migração e a troca começa a valer a pena?"
+    key_points:
+      - "a economia mensal é de cinco mil e quinhentos reais"
+      - "a taxa de migração é de nove mil reais"
+      - "a taxa se paga em menos de dois meses"
+
+  - id: responsavel-homologacao
+    tags: [responsavel]
+    context:
+      - speaker: mic
+        text: "A homologação com o cliente fica com a Marina, que já conhece o ambiente deles."
+      - speaker: mic
+        text: "O Rafael só entra se aparecer problema de integração com o ERP, como apoio."
+      - speaker: system
+        text: "Perfeito, e a janela de testes é de dez dias úteis, certo?"
+      - speaker: mic
+        text: "Isso, dez dias úteis a partir da liberação do ambiente."
+    question:
+      speaker: system
+      text: "Só para eu registrar na ata, quem é a pessoa responsável pela homologação do lado de vocês e qual é o papel do Rafael nisso?"
+    key_points:
+      - "a responsável pela homologação é a Marina"
+      - "o Rafael atua só como apoio em problemas de integração com o ERP"
+
+  - id: causa-incidente-login
+    tags: [incidente]
+    context:
+      - speaker: mic
+        text: "O incidente de ontem começou às quatorze e dez, quando o certificado do serviço de autenticação expirou."
+      - speaker: mic
+        text: "A renovação automática falhou porque a permissão do robô tinha sido removida numa limpeza de acessos."
+      - speaker: mic
+        text: "A gente renovou na mão e o login voltou às quatorze e cinquenta e cinco."
+    question:
+      speaker: system
+      text: "Qual foi a causa raiz da queda do login e quanto tempo os usuários ficaram sem conseguir entrar no sistema?"
+    key_points:
+      - "o certificado do serviço de autenticação expirou"
+      - "a renovação automática falhou porque a permissão do robô foi removida"
+      - "a indisponibilidade durou cerca de quarenta e cinco minutos"
+
+  - id: limite-requisicoes-api
+    tags: [api]
+    context:
+      - speaker: system
+        text: "No plano atual a gente tem limite de cem requisições por segundo na API de vocês."
+      - speaker: mic
+        text: "Isso, e o plano empresarial sobe para quinhentas por segundo, com rajada de até mil por dez segundos."
+      - speaker: system
+        text: "Na Black Friday a nossa previsão é bater trezentas e cinquenta por segundo no pico."
+    question:
+      speaker: system
+      text: "Com essa previsão de pico, o plano atual aguenta ou a gente precisa obrigatoriamente migrar para o plano empresarial antes da Black Friday?"
+    key_points:
+      - "o plano atual limita em cem requisições por segundo"
+      - "o pico previsto é de trezentas e cinquenta por segundo, acima do limite atual"
+      - "é preciso migrar para o plano empresarial, que suporta quinhentas por segundo"
+
+  - id: desconto-contrato-anual
+    tags: [comercial]
+    context:
+      - speaker: mic
+        text: "No mensal o valor é de dois mil e quatrocentos reais por mês, sem fidelidade."
+      - speaker: mic
+        text: "No contrato anual a gente dá quinze por cento de desconto, e acima de cinquenta usuários o desconto vai para vinte por cento."
+      - speaker: system
+        text: "A gente vai começar com sessenta e dois usuários."
+    question:
+      speaker: system
+      text: "Então no nosso caso, fechando o contrato anual com essa quantidade de usuários, qual desconto a gente consegue e quanto fica a mensalidade?"
+    key_points:
+      - "com sessenta e dois usuários o desconto do anual é de vinte por cento"
+      - "a mensalidade cai de dois mil e quatrocentos para mil novecentos e vinte reais"
+
+  - id: rollback-deploy
+    tags: [deploy]
+    context:
+      - speaker: mic
+        text: "O deploy de quinta vai ser azul e verde, então a versão antiga fica de pé por vinte e quatro horas."
+      - speaker: mic
+        text: "Se a taxa de erro passar de dois por cento nos primeiros trinta minutos, a gente vira o tráfego de volta."
+      - speaker: system
+        text: "E a virada de volta é manual ou automática?"
+      - speaker: mic
+        text: "É automática pelo balanceador, leva menos de um minuto."
+    question:
+      speaker: system
+      text: "Se der problema depois da virada, qual é o critério para voltar para a versão antiga e quanto tempo esse rollback demora?"
+    key_points:
+      - "o critério é taxa de erro acima de dois por cento nos primeiros trinta minutos"
+      - "o rollback é automático pelo balanceador e leva menos de um minuto"
+      - "a versão antiga fica disponível por vinte e quatro horas"
+
+  - id: metricas-conversao
+    tags: [produto]
+    context:
+      - speaker: mic
+        text: "O teste A B do novo checkout rodou por três semanas com metade do tráfego em cada versão."
+      - speaker: mic
+        text: "A conversão da versão antiga ficou em dois vírgula um por cento e a da nova em dois vírgula sete."
+      - speaker: mic
+        text: "O ticket médio não mudou, continuou em cento e oitenta reais."
+    question:
+      speaker: system
+      text: "O novo checkout melhorou de fato a conversão, e de quanto foi esse ganho em relação à versão antiga?"
+    key_points:
+      - "a conversão subiu de dois vírgula um para dois vírgula sete por cento"
+      - "o ganho é de zero vírgula seis ponto percentual, quase trinta por cento relativo"
+      - "o ticket médio não mudou"
+
+  - id: contratacao-vagas
+    tags: [pessoas]
+    context:
+      - speaker: mic
+        text: "A gente tem três vagas abertas, duas de backend e uma de dados."
+      - speaker: mic
+        text: "As duas de backend já estão na fase de proposta, e a pessoa de dados ainda está em entrevista técnica."
+      - speaker: system
+        text: "E a previsão de início dessas pessoas?"
+      - speaker: mic
+        text: "Backend começa em primeiro de novembro, dados só em dezembro se der tudo certo."
+    question:
+      speaker: system
+      text: "Resumindo para o planejamento, quantas pessoas novas entram no time até o fim do ano e quando cada uma começa?"
+    key_points:
+      - "são três vagas, duas de backend e uma de dados"
+      - "as duas pessoas de backend começam em primeiro de novembro"
+      - "a pessoa de dados começa em dezembro, se o processo der certo"
+
+  - id: lgpd-retencao-dados
+    tags: [juridico]
+    context:
+      - speaker: mic
+        text: "As gravações das chamadas ficam guardadas por noventa dias e depois são apagadas automaticamente."
+      - speaker: mic
+        text: "As transcrições ficam por doze meses, porque o jurídico pediu para auditoria."
+      - speaker: system
+        text: "E se um titular pedir a exclusão antes disso?"
+      - speaker: mic
+        text: "Aí a gente apaga em até quinze dias, tanto o áudio quanto o texto."
+    question:
+      speaker: system
+      text: "Para eu responder o questionário de privacidade, por quanto tempo vocês guardam o áudio e a transcrição e qual é o prazo para atender um pedido de exclusão?"
+    key_points:
+      - "o áudio é guardado por noventa dias"
+      - "a transcrição é guardada por doze meses"
+      - "um pedido de exclusão é atendido em até quinze dias"
+
+  - id: integracao-erp
+    tags: [integracao]
+    context:
+      - speaker: system
+        text: "O nosso ERP só exporta pedidos por arquivo, não tem API."
+      - speaker: mic
+        text: "Sem problema, a gente lê o arquivo por SFTP de hora em hora e importa os pedidos novos."
+      - speaker: mic
+        text: "O desenvolvimento desse conector leva duas semanas, mais uma semana de testes com vocês."
+    question:
+      speaker: system
+      text: "Como vai funcionar a integração com o nosso ERP na prática e em quanto tempo ela fica pronta para uso?"
+    key_points:
+      - "a integração é por arquivo lido via SFTP de hora em hora"
+      - "são duas semanas de desenvolvimento mais uma semana de testes"
+      - "o prazo total é de três semanas"
+
+  - id: suporte-sla
+    tags: [suporte]
+    context:
+      - speaker: mic
+        text: "No plano padrão o suporte responde em até oito horas úteis."
+      - speaker: mic
+        text: "No plano premium, incidente crítico tem resposta em trinta minutos, vinte e quatro por sete."
+      - speaker: system
+        text: "A nossa operação roda de madrugada, então horário comercial não resolve."
+    question:
+      speaker: system
+      text: "Dado que a gente opera de madrugada, qual plano de suporte atende a nossa necessidade e qual é o tempo de resposta para incidente crítico?"
+    key_points:
+      - "o plano premium atende, porque funciona vinte e quatro por sete"
+      - "incidente crítico tem resposta em trinta minutos no premium"
+      - "o plano padrão só responde em horas úteis, em até oito horas"
+
+  - id: backup-restauracao
+    tags: [infra]
+    context:
+      - speaker: mic
+        text: "O banco tem backup completo toda noite e backup incremental a cada quinze minutos."
+      - speaker: mic
+        text: "No último teste de restauração, a gente levou quarenta minutos para subir o ambiente inteiro."
+      - speaker: system
+        text: "Então na pior hipótese a gente perde quinze minutos de dados."
+    question:
+      speaker: system
+      text: "Se o banco principal cair agora, quanto de dado a gente pode perder e em quanto tempo o sistema volta a funcionar?"
+    key_points:
+      - "a perda máxima de dados é de quinze minutos, por causa do backup incremental"
+      - "a restauração completa leva cerca de quarenta minutos"
+
+  - id: migracao-banco
+    tags: [infra]
+    context:
+      - speaker: mic
+        text: "A migração do banco está marcada para o sábado, dia vinte e quatro, às vinte e duas horas."
+      - speaker: mic
+        text: "A janela é de quatro horas, e o sistema fica só para leitura nesse período."
+      - speaker: system
+        text: "E se passar da janela?"
+      - speaker: mic
+        text: "Se até as duas da manhã não tiver terminado, a gente aborta e volta para o banco antigo."
+    question:
+      speaker: system
+      text: "Qual é exatamente a janela da migração do banco, o que acontece com o sistema nesse período e qual é o plano se ela atrasar?"
+    key_points:
+      - "a migração é no sábado dia vinte e quatro, das vinte e duas às duas da manhã"
+      - "o sistema fica só para leitura durante a janela"
+      - "se não terminar até as duas da manhã, a migração é abortada e volta o banco antigo"
+
+  - id: treinamento-equipe
+    tags: [treinamento]
+    context:
+      - speaker: mic
+        text: "O treinamento são duas turmas de no máximo vinte pessoas, cada uma com quatro horas."
+      - speaker: mic
+        text: "A primeira turma é na terça de manhã e a segunda na quinta à tarde, tudo remoto."
+      - speaker: system
+        text: "A gente tem trinta e cinco atendentes para treinar."
+    question:
+      speaker: system
+      text: "Com trinta e cinco atendentes, as duas turmas dão conta de treinar todo mundo ou a gente precisa abrir uma terceira?"
+    key_points:
+      - "são duas turmas de até vinte pessoas, quarenta vagas no total"
+      - "trinta e cinco atendentes cabem nas duas turmas"
+      - "não é preciso abrir uma terceira turma"
+
+  - id: versao-mobile
+    tags: [mobile]
+    context:
+      - speaker: mic
+        text: "A versão três ponto dois do aplicativo já está em revisão na loja da Apple desde segunda."
+      - speaker: mic
+        text: "Na loja do Google ela foi aprovada ontem e está liberada para dez por cento dos usuários."
+      - speaker: system
+        text: "E a correção do bug de notificação está nessa versão?"
+      - speaker: mic
+        text: "Está sim, ela entrou na três ponto dois."
+    question:
+      speaker: system
+      text: "Em que pé está a publicação da versão nova do aplicativo em cada loja e a correção das notificações já chegou para os usuários?"
+    key_points:
+      - "na Apple a versão três ponto dois está em revisão desde segunda"
+      - "no Google foi aprovada e está liberada para dez por cento dos usuários"
+      - "a correção das notificações está incluída na versão três ponto dois"
+
+  - id: orcamento-marketing
+    tags: [marketing]
+    context:
+      - speaker: mic
+        text: "O orçamento do trimestre é de trezentos mil reais."
+      - speaker: mic
+        text: "A proposta é colocar metade em mídia paga, trinta por cento em eventos e o resto em conteúdo."
+      - speaker: system
+        text: "No trimestre passado conteúdo teve o melhor custo por lead."
+    question:
+      speaker: system
+      text: "Nessa divisão que você propôs, quanto em reais vai para cada frente e quanto sobra para conteúdo?"
+    key_points:
+      - "mídia paga fica com cento e cinquenta mil reais"
+      - "eventos ficam com noventa mil reais"
+      - "conteúdo fica com sessenta mil reais, vinte por cento do total"
+
+  - id: latencia-transcricao
+    tags: [produto]
+    context:
+      - speaker: mic
+        text: "No teste de ontem o provedor A entregou o texto final em média setecentos milissegundos depois da fala."
+      - speaker: mic
+        text: "O provedor B levou um segundo e meio, mas errou menos nomes próprios."
+      - speaker: system
+        text: "Para legenda ao vivo o que pesa mais é a demora."
+    question:
+      speaker: system
+      text: "Pensando em legenda ao vivo, qual dos dois provedores de transcrição faz mais sentido e por quê?"
+    key_points:
+      - "o provedor A é mais rápido, com cerca de setecentos milissegundos"
+      - "o provedor B leva um segundo e meio, mas erra menos nomes próprios"
+      - "para legenda ao vivo o provedor A faz mais sentido, porque a demora pesa mais"
+
+  - id: renovacao-licencas
+    tags: [compras]
+    context:
+      - speaker: mic
+        text: "A gente tem cento e vinte licenças ativas, e o contrato vence no dia trinta de novembro."
+      - speaker: mic
+        text: "No último levantamento, só noventa e cinco pessoas usaram a ferramenta nos últimos sessenta dias."
+      - speaker: system
+        text: "Cada licença custa oitenta reais por mês."
+    question:
+      speaker: system
+      text: "Se a gente renovar só para quem realmente usa, quantas licenças dá para cortar e quanto isso economiza por mês?"
+    key_points:
+      - "dá para cortar vinte e cinco licenças, de cento e vinte para noventa e cinco"
+      - "a economia é de dois mil reais por mês"
+      - "o contrato vence no dia trinta de novembro"
+
+  - id: proximos-passos-piloto
+    tags: [piloto]
+    context:
+      - speaker: mic
+        text: "O piloto roda por trinta dias com duas equipes de vendas, umas quarenta pessoas."
+      - speaker: mic
+        text: "O critério de sucesso que a gente combinou é reduzir em vinte por cento o tempo de preenchimento do CRM."
+      - speaker: system
+        text: "E se bater a meta, qual é o passo seguinte?"
+      - speaker: mic
+        text: "Aí a gente expande para as outras seis equipes em janeiro."
+    question:
+      speaker: system
+      text: "Pode recapitular como vai ser o piloto, qual é a meta que define sucesso e o que acontece depois se ela for atingida?"
+    key_points:
+      - "o piloto dura trinta dias com duas equipes de vendas, cerca de quarenta pessoas"
+      - "a meta é reduzir em vinte por cento o tempo de preenchimento do CRM"
+      - "se a meta for atingida, a expansão para as outras seis equipes acontece em janeiro"

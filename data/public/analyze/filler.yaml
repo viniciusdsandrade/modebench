@@ -1,0 +1,215 @@
+# Synthetic meeting talk in Brazilian Portuguese. The blocks of this file make
+# the long transcript that comes before a case (5, 15, 30 or 60 minutes). They
+# stand under the heading of the earlier stretch, which the answer must use as
+# context only. Some blocks hold questions on purpose: a good answer does not
+# answer them again. All names and numbers are invented.
+version: 1
+language: pt-BR
+blocks:
+  - topic: abertura
+    lines:
+      - speaker: mic
+        text: "Bom dia, pessoal, obrigado por entrarem no horário, acho que dá para começar."
+      - speaker: system
+        text: "Bom dia, estamos todos aqui, só o Henrique que avisou que entra uns dez minutos atrasado."
+      - speaker: mic
+        text: "Sem problema, eu vou gravar a reunião e depois mando o resumo para ele por e-mail."
+      - speaker: system
+        text: "Perfeito, a pauta de hoje é a mesma que eu mandei ontem no convite, com os quatro tópicos."
+      - speaker: mic
+        text: "Isso, e se sobrar tempo no final a gente fala rapidamente do calendário do mês que vem."
+
+  - topic: status-projeto
+    lines:
+      - speaker: mic
+        text: "Sobre o andamento geral, a gente fechou a sprint passada com oitenta e cinco por cento das histórias entregues."
+      - speaker: system
+        text: "E o que ficou para trás foi alguma coisa crítica ou só ajuste de tela?"
+      - speaker: mic
+        text: "Só ajuste de tela e um relatório que dependia de um dado que o financeiro ainda não mandou."
+      - speaker: system
+        text: "Entendi, então não tem nada que bloqueie a próxima etapa do cronograma."
+      - speaker: mic
+        text: "Não tem, o caminho crítico continua em dia e a equipe está com a capacidade completa."
+      - speaker: system
+        text: "Ótimo, eu vou atualizar o painel de acompanhamento com esses números ainda hoje."
+
+  - topic: ambiente-testes
+    lines:
+      - speaker: system
+        text: "Uma dúvida do nosso lado, o ambiente de testes de vocês já está com os dados novos carregados?"
+      - speaker: mic
+        text: "Está sim, a carga terminou ontem à noite e a gente validou uma amostra de duzentos registros."
+      - speaker: system
+        text: "E a amostra bateu com o que está na produção ou apareceu alguma diferença?"
+      - speaker: mic
+        text: "Bateu em tudo, só três registros tinham o CEP num formato antigo e a gente já corrigiu."
+      - speaker: system
+        text: "Boa, então a minha equipe pode começar os testes exploratórios a partir de amanhã cedo."
+
+  - topic: comunicacao-clientes
+    lines:
+      - speaker: mic
+        text: "Outro ponto é a comunicação com os clientes sobre a mudança de tela do aplicativo."
+      - speaker: system
+        text: "A gente pensou em mandar um aviso dentro do próprio aplicativo uma semana antes da virada."
+      - speaker: mic
+        text: "Eu gosto da ideia, e acho que vale também um e-mail curto para os clientes que mais usam."
+      - speaker: system
+        text: "O marketing consegue preparar esse e-mail, só precisa das capturas de tela novas até sexta."
+      - speaker: mic
+        text: "Eu peço para o time de design exportar as capturas e mando na quinta no fim do dia."
+      - speaker: system
+        text: "Combinado, com isso a gente fecha a régua de comunicação dentro do prazo."
+
+  - topic: riscos
+    lines:
+      - speaker: mic
+        text: "Falando de riscos, o principal continua sendo a dependência do fornecedor de mensagens."
+      - speaker: system
+        text: "Eles chegaram a responder sobre a instabilidade que aconteceu na semana retrasada?"
+      - speaker: mic
+        text: "Responderam que foi uma manutenção mal comunicada e prometeram avisar com cinco dias de antecedência."
+      - speaker: system
+        text: "Mesmo assim eu manteria o plano de ter um segundo fornecedor homologado como reserva."
+      - speaker: mic
+        text: "Concordo, a gente já pediu proposta para dois e deve receber as respostas na semana que vem."
+
+  - topic: desempenho
+    lines:
+      - speaker: system
+        text: "Sobre desempenho, os usuários ainda reclamam que a tela de busca demora para carregar."
+      - speaker: mic
+        text: "A gente mediu e o tempo médio está em dois segundos, o objetivo é ficar abaixo de um."
+      - speaker: mic
+        text: "O maior ganho vem de um índice novo no banco, que entra na próxima atualização."
+      - speaker: system
+        text: "E dá para medir isso antes e depois, para a gente mostrar o resultado para a diretoria?"
+      - speaker: mic
+        text: "Dá sim, o painel de monitoramento guarda o histórico e eu separo um gráfico comparando os dois períodos."
+
+  - topic: seguranca
+    lines:
+      - speaker: mic
+        text: "Na parte de segurança, o teste de invasão deste ano apontou quatro achados, nenhum crítico."
+      - speaker: system
+        text: "Os quatro já têm responsável e data para correção ou ainda estão em análise?"
+      - speaker: mic
+        text: "Três já foram corrigidos e o último depende de uma atualização de biblioteca que sai este mês."
+      - speaker: system
+        text: "Depois eu preciso do relatório final para anexar na renovação do nosso seguro cibernético."
+      - speaker: mic
+        text: "Eu mando a versão resumida hoje e a completa assim que o último item for fechado."
+
+  - topic: financeiro
+    lines:
+      - speaker: system
+        text: "Do lado financeiro, a fatura do mês passado veio com um valor diferente do previsto."
+      - speaker: mic
+        text: "Foi por causa do excedente de armazenamento, vocês passaram do pacote em uns quinze por cento."
+      - speaker: system
+        text: "Entendi, e faz sentido a gente subir de pacote ou é melhor limpar arquivos antigos?"
+      - speaker: mic
+        text: "Eu sugiro primeiro limpar, porque tem muito anexo duplicado, e reavaliar no fechamento do mês."
+      - speaker: system
+        text: "Tá bom, eu alinho internamente essa limpeza e volto com uma posição na próxima reunião."
+
+  - topic: suporte
+    lines:
+      - speaker: mic
+        text: "No suporte, o volume de chamados caiu dez por cento depois da nova central de ajuda."
+      - speaker: system
+        text: "A gente percebeu mesmo, o time comentou que as dúvidas simples quase sumiram da fila."
+      - speaker: mic
+        text: "O que mais aparece agora é dúvida sobre permissão de usuário e sobre exportação de relatório."
+      - speaker: system
+        text: "Talvez valha gravar dois vídeos curtos sobre esses temas e deixar em destaque na central."
+      - speaker: mic
+        text: "Boa ideia, eu coloco na lista do time de conteúdo para sair ainda neste mês."
+
+  - topic: roadmap
+    lines:
+      - speaker: system
+        text: "Eu queria entender o que está previsto no roteiro do produto para o próximo trimestre."
+      - speaker: mic
+        text: "O foco é o módulo de relatórios personalizados e a integração com a assinatura eletrônica."
+      - speaker: mic
+        text: "Também entra uma revisão do aplicativo para funcionar melhor em conexão lenta."
+      - speaker: system
+        text: "A assinatura eletrônica é a que mais interessa para a gente, por causa dos contratos de campo."
+      - speaker: mic
+        text: "Então eu coloco vocês no grupo de clientes que testam antes, assim que a primeira versão ficar pronta."
+
+  - topic: dados
+    lines:
+      - speaker: mic
+        text: "Sobre a qualidade dos dados, a gente encontrou cadastros duplicados em cerca de dois por cento da base."
+      - speaker: system
+        text: "Isso atrapalha bastante os nossos relatórios de vendas, porque o mesmo cliente aparece duas vezes."
+      - speaker: mic
+        text: "A proposta é rodar uma rotina de unificação por CNPJ e revisar na mão os casos em que houver dúvida."
+      - speaker: system
+        text: "Pode seguir, só peço para guardar uma cópia da base antes de rodar essa rotina."
+      - speaker: mic
+        text: "Com certeza, a cópia fica guardada por trinta dias para qualquer necessidade de conferência."
+
+  - topic: agenda
+    lines:
+      - speaker: system
+        text: "Sobre a agenda, a próxima reunião cai num feriado, então a gente precisa mudar a data."
+      - speaker: mic
+        text: "Pode ser na quarta seguinte no mesmo horário, eu já vi que a sala virtual está livre."
+      - speaker: system
+        text: "Para mim funciona, só preciso confirmar com a diretora, que costuma viajar nessa semana."
+      - speaker: mic
+        text: "Sem problema, eu mando o convite como provisório e ajusto quando você tiver a confirmação."
+
+  - topic: processo
+    lines:
+      - speaker: mic
+        text: "Um ajuste de processo que eu queria propor é concentrar os pedidos de mudança num formulário único."
+      - speaker: system
+        text: "Hoje eles chegam por e-mail, por mensagem e até por telefone, e a gente perde o histórico."
+      - speaker: mic
+        text: "Exato, com o formulário cada pedido ganha um número e um responsável já na entrada."
+      - speaker: system
+        text: "Eu apoio, só precisamos treinar o pessoal da operação para não continuar pedindo por fora."
+      - speaker: mic
+        text: "Eu preparo um guia de uma página e apresento na reunião da operação de segunda."
+
+  - topic: infraestrutura
+    lines:
+      - speaker: system
+        text: "Na infraestrutura, a nossa rede interna vai passar por manutenção no fim do mês."
+      - speaker: mic
+        text: "Isso afeta o acesso de vocês ao sistema ou é só na rede dos escritórios?"
+      - speaker: system
+        text: "Só nos escritórios, quem trabalha de casa continua acessando normalmente."
+      - speaker: mic
+        text: "Então eu só aviso o suporte para não estranhar se cair o volume de acessos nesse dia."
+      - speaker: system
+        text: "Isso, deve ser no sábado de manhã, e eu confirmo o horário exato por e-mail."
+
+  - topic: satisfacao
+    lines:
+      - speaker: mic
+        text: "A pesquisa de satisfação do trimestre fechou com nota oito vírgula quatro, um pouco acima da anterior."
+      - speaker: system
+        text: "Os comentários negativos foram sobre o quê, principalmente?"
+      - speaker: mic
+        text: "Sobre a lentidão da busca e sobre a falta de um modo escuro no aplicativo."
+      - speaker: system
+        text: "O modo escuro aparece em toda pesquisa, acho que vale entrar no roteiro do produto."
+      - speaker: mic
+        text: "Já entrou, está previsto para depois da revisão de conexão lenta que eu comentei."
+
+  - topic: encerramento-parcial
+    lines:
+      - speaker: mic
+        text: "Antes de seguir para o próximo tópico, alguém quer acrescentar alguma coisa sobre o que a gente viu até aqui?"
+      - speaker: system
+        text: "Do meu lado não, está tudo claro e eu anotei os pontos que ficaram comigo."
+      - speaker: mic
+        text: "Ótimo, então eu registro as pendências na ata e a gente passa para o assunto seguinte."
+      - speaker: system
+        text: "Pode seguir, eu só vou precisar sair cinco minutos antes do horário por causa de outra reunião."
