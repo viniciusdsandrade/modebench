@@ -14,8 +14,6 @@
         <string>run</string>
         <string>--profile</string>
         <string>quick</string>
-        <string>--max-cost</string>
-        <string>2.0</string>
     </array>
     <key>WorkingDirectory</key>
     <string>/Users/Shared/modebench</string>

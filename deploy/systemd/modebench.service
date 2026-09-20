@@ -1,13 +1,34 @@
 [Unit]
 Description=Modebench weekly benchmark run
-After=network.target
+# The run needs the network, not only the network stack.
+Wants=network-online.target
+After=network-online.target
 
 [Service]
 Type=oneshot
+# Make this user before you enable the unit: useradd --system --home /opt/modebench modebench
+User=modebench
+Group=modebench
 WorkingDirectory=/opt/modebench
-EnvironmentFile=-/opt/modebench/.env
-ExecStart=/opt/modebench/.venv/bin/python -m modebench run --profile quick --max-cost 2.0
+# The application reads /opt/modebench/.env. Keep that file at mode 0600, owner modebench.
+# The cost ceiling is max_cost_usd of the profile. Check it with: modebench run --estimate-only
+ExecStart=/opt/modebench/.venv/bin/python -m modebench run --profile quick
 ExecStartPost=/opt/modebench/.venv/bin/python -m modebench decide --run latest
 ExecStartPost=/opt/modebench/.venv/bin/python -m modebench report --run latest
 StandardOutput=journal
 StandardError=journal
+
+# The benchmark reads answers of remote services. It needs no privilege and no
+# write access out of its own directory.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
+RestrictSUIDSGID=yes
+LockPersonality=yes
+ReadWritePaths=/opt/modebench

@@ -77,7 +77,8 @@ omit = [
 ]
 
 [tool.coverage.report]
-fail_under = 65
+# The convention of the project: the core stays at 90 percent or more.
+fail_under = 90
 show_missing = true
 exclude_also = [
     "if TYPE_CHECKING:",
