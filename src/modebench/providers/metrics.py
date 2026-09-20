@@ -5,6 +5,9 @@ from dataclasses import dataclass
 from modebench.config import Price, ProviderConfig
 from modebench.providers.base import StreamOutcome
 
+# Failures that come after the provider started to make tokens.
+BILLABLE_FAILURES = frozenset({"timeout", "stream_error", "empty_output"})
+
 
 @dataclass(frozen=True, slots=True)
 class DerivedMetrics:
@@ -52,6 +55,22 @@ def price_cost(outcome: StreamOutcome, price: Price, billable_output: int) -> fl
     total = fresh * price.usd_per_mtok_in + cached * cached_price
     total += billable_output * price.usd_per_mtok_out
     return total / 1_000_000
+
+
+def assumed_cost(outcome: StreamOutcome, metrics: DerivedMetrics, estimate_usd: float) -> float:
+    """Return the cost that the ceiling assumes for a request with no known cost.
+
+    A request with no usage block can still be billed: a timeout or a broken
+    stream comes after the provider made tokens. Such a request counts as the
+    estimate of one request, so the ceiling stays a ceiling. A request that
+    the provider refused (an HTTP error or a transport error) made no tokens,
+    and it counts as zero. A request with a known cost has nothing to assume.
+    """
+    if metrics.cost_usd is not None:
+        return 0.0
+    if outcome.ok or outcome.error_kind in BILLABLE_FAILURES:
+        return max(0.0, estimate_usd)
+    return 0.0
 
 
 def derive_metrics(

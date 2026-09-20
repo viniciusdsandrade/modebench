@@ -7,6 +7,17 @@ mode. The adapter adds nothing to those parameters and removes nothing.
 The clock is `perf_counter_ns`. It is read one time when the request starts
 and one time for each block of bytes that the network delivers, so an event
 has the time at which its bytes were in the process.
+
+The connection pool keeps an idle connection for minutes, not for the five
+seconds that the HTTP library gives by default. In a round of modes, the
+connection of one endpoint is idle while the modes of the other endpoints
+run. With the default, the first mode of each endpoint would open a connection
+for each request, and its latencies would hold a handshake that the other
+modes do not pay. Each outcome says if its request opened a connection.
+
+The timeout is the read timeout of the socket and a deadline that is checked
+when a line arrives. A stream that sends bytes and then goes silent can thus
+last longer than the timeout, to a maximum of two times the timeout.
 """
 
 import json
@@ -26,6 +37,17 @@ Clock = Callable[[], int]
 
 _ERROR_BODY_LIMIT = 500
 _CONNECT_TIMEOUT_S = 10.0
+KEEPALIVE_EXPIRY_S = 300.0
+_CONNECT_STARTED = "connection.connect_tcp.started"
+_CONNECT_ENDED = frozenset({"connection.connect_tcp.complete", "connection.start_tls.complete"})
+
+
+def new_client() -> httpx.Client:
+    """Return an HTTP client that keeps its idle connections between the rounds of a run."""
+    limits = httpx.Limits(
+        max_connections=10, max_keepalive_connections=10, keepalive_expiry=KEEPALIVE_EXPIRY_S
+    )
+    return httpx.Client(limits=limits)
 
 
 def build_body(provider: ProviderConfig, mode: Mode, request: ChatRequest) -> dict[str, Any]:
@@ -58,6 +80,9 @@ class _StreamState:
     reasoning_chars: int = 0
     usage: dict[str, Any] | None = None
     served_by: str | None = None
+    finish_reason: str | None = None
+    connect_start_ns: int | None = None
+    connect_end_ns: int | None = None
     malformed: int = 0
     stream_error: str | None = None
     done: bool = False
@@ -173,7 +198,12 @@ def _consume(event: SseEvent, state: _StreamState) -> None:
     if not isinstance(choices, list):
         return
     for choice in choices:
-        delta = choice.get("delta") if isinstance(choice, dict) else None
+        if not isinstance(choice, dict):
+            continue
+        reason = choice.get("finish_reason")
+        if isinstance(reason, str) and reason:
+            state.finish_reason = reason
+        delta = choice.get("delta")
         if not isinstance(delta, dict):
             continue
         _consume_delta(delta, event.at_ns, state)
@@ -236,7 +266,7 @@ class OpenAICompatProvider:
     ) -> None:
         self._config = config
         self._api_key = api_key
-        self._client = client if client is not None else httpx.Client()
+        self._client = client if client is not None else new_client()
         self._owns_client = client is None
         self._clock = clock
 
@@ -249,6 +279,17 @@ class OpenAICompatProvider:
         headers = {"Accept": "text/event-stream", **self._config.headers}
         headers["Authorization"] = f"Bearer {self._api_key}"
         return headers
+
+    def _trace(self, state: _StreamState) -> Callable[[str, dict[str, Any]], None]:
+        """Return the callback that notes when the transport opens a connection."""
+
+        def on_event(name: str, info: dict[str, Any]) -> None:
+            if name == _CONNECT_STARTED:
+                state.connect_start_ns = self._clock()
+            elif name in _CONNECT_ENDED:
+                state.connect_end_ns = self._clock()
+
+        return on_event
 
     def stream_chat(self, mode: Mode, request: ChatRequest, timeout_s: float) -> StreamOutcome:
         """Send one request and return what the stream did, with its times."""
@@ -263,13 +304,17 @@ class OpenAICompatProvider:
         http_status: int | None = None
         try:
             with self._client.stream(
-                "POST", url, json=body, headers=self._headers(), timeout=timeout
+                "POST",
+                url,
+                json=body,
+                headers=self._headers(),
+                timeout=timeout,
+                extensions={"trace": self._trace(state)},
             ) as response:
                 http_status = response.status_code
                 if http_status != 200:
-                    text = response.read().decode("utf-8", errors="replace")
                     error_kind = "http_error"
-                    error_message = text[:_ERROR_BODY_LIMIT]
+                    error_message = response.read().decode("utf-8", errors="replace")
                 else:
                     for line, now_ns in _timed_lines(response.iter_bytes(), self._clock):
                         if now_ns - state.start_ns > deadline_ns:
@@ -313,7 +358,11 @@ class OpenAICompatProvider:
     ) -> StreamOutcome:
         usage = state.usage or {}
         if error_message is not None:
-            error_message = redact(error_message, [self._api_key])
+            # The cut comes after the redaction, so that it never leaves a part of a key.
+            error_message = redact(error_message, [self._api_key])[:_ERROR_BODY_LIMIT]
+        connect_ms: float | None = None
+        if state.connect_start_ns is not None and state.connect_end_ns is not None:
+            connect_ms = (state.connect_end_ns - state.connect_start_ns) / 1e6
         if parser.comments:
             state.events.append(StreamEvent(offset_ms=0.0, kind="comments", chars=parser.comments))
         return StreamOutcome(
@@ -335,6 +384,9 @@ class OpenAICompatProvider:
             total_tokens=_int_or_none(usage.get("total_tokens")),
             reported_cost_usd=_float_or_none(usage.get("cost")),
             served_by=state.served_by,
+            finish_reason=state.finish_reason,
+            new_connection=state.connect_start_ns is not None,
+            connect_ms=connect_ms,
             malformed_chunks=state.malformed,
             events=state.events,
         )

@@ -70,7 +70,8 @@ def fetch_catalogue(
 ) -> dict[str, dict[str, Any]]:
     """Return the model list of one endpoint: identifier, then entry."""
     url: str | None = provider.base_url.rstrip("/") + provider.models_path
-    headers = {"Authorization": f"Bearer {api_key}", **provider.headers}
+    # The credential goes in last, so a header of the config cannot replace it.
+    headers = {**provider.headers, "Authorization": f"Bearer {api_key}"}
     catalogue: dict[str, dict[str, Any]] = {}
     pages = 0
     while url is not None and pages < MAX_PAGES:
@@ -85,7 +86,10 @@ def fetch_catalogue(
             raise PreflightError(
                 f"the model list at {url} answered HTTP {response.status_code}: {body}"
             )
-        payload = response.json()
+        try:
+            payload = response.json()
+        except ValueError as exc:
+            raise PreflightError(f"the model list at {url} is not JSON: {exc}") from exc
         entries = payload.get("data") if isinstance(payload, dict) else None
         if not isinstance(entries, list):
             raise PreflightError(f"the model list at {url} has no data array")
@@ -113,7 +117,10 @@ def run_preflight(
     problems: list[str] = []
     catalogues: dict[str, dict[str, dict[str, Any]]] = {}
     for mode in modes:
-        provider = modes_file.providers[mode.provider]
+        provider = modes_file.providers.get(mode.provider)
+        if provider is None:
+            problems.append(f"{mode.id}: the provider {mode.provider} is not in the modes file")
+            continue
         if provider.kind != "openai_compat":
             continue
         if mode.provider not in catalogues:

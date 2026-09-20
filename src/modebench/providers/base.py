@@ -32,7 +32,14 @@ class StreamEvent:
 
 @dataclass(slots=True)
 class StreamOutcome:
-    """The measured result of one request. A failure is an outcome, not an exception."""
+    """The measured result of one request. A failure is an outcome, not an exception.
+
+    `new_connection` is True if the request had to open a connection, and
+    `connect_ms` is then the time that the TCP and TLS handshakes took. That
+    time is a part of each latency of the request. `finish_reason` is what the
+    API gave as the reason for the end of the answer: `length` is an answer
+    that the token limit cut.
+    """
 
     ok: bool
     total_ms: float
@@ -52,6 +59,9 @@ class StreamOutcome:
     total_tokens: int | None = None
     reported_cost_usd: float | None = None
     served_by: str | None = None
+    finish_reason: str | None = None
+    new_connection: bool = False
+    connect_ms: float | None = None
     malformed_chunks: int = 0
     events: list[StreamEvent] = field(default_factory=list)
 

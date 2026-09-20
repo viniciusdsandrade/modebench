@@ -9,12 +9,18 @@ import json
 from collections.abc import Callable, Iterator
 
 import httpx
+import pytest
 import respx
 
 from helpers import TickClock
 from modebench.config import Mode, ProviderConfig
 from modebench.providers.base import ChatRequest
-from modebench.providers.openai_compat import OpenAICompatProvider, build_body
+from modebench.providers.openai_compat import (
+    KEEPALIVE_EXPIRY_S,
+    OpenAICompatProvider,
+    build_body,
+    new_client,
+)
 
 BASE_URL = "https://openrouter.test/api/v1"
 URL = f"{BASE_URL}/chat/completions"
@@ -272,3 +278,77 @@ def test_a_connection_error_is_a_transport_failure() -> None:
     assert outcome.error_kind == "transport_error"
     assert outcome.error_message is not None
     assert "ConnectError" in outcome.error_message
+
+
+def test_the_finish_reason_of_the_answer_is_kept() -> None:
+    blocks = [
+        delta(content="Uma resposta que o limite cort"),
+        event({"choices": [{"delta": {}, "finish_reason": "length"}, "not a choice"]}),
+        b"data: [DONE]\n\n",
+    ]
+    provider, _ = provider_for(blocks)
+    outcome = provider.stream_chat(MODE, REQUEST, 60.0)
+    assert outcome.ok
+    assert outcome.finish_reason == "length"
+    # The mock transport opens no connection, so no handshake is in the latencies.
+    assert outcome.new_connection is False
+    assert outcome.connect_ms is None
+
+
+@respx.mock
+def test_the_error_body_is_redacted_before_it_is_cut() -> None:
+    # The key starts before the cut and ends after it. A cut before the redaction
+    # would leave the first part of the key in the record.
+    body = "x" * 490 + API_KEY + " and more"
+    respx.post(URL).mock(return_value=httpx.Response(500, text=body))
+    provider = OpenAICompatProvider(PROVIDER, API_KEY, clock=TickClock())
+    outcome = provider.stream_chat(MODE, REQUEST, 60.0)
+    provider.close()
+    assert outcome.error_kind == "http_error"
+    assert outcome.error_message is not None
+    assert len(outcome.error_message) <= 500
+    assert "sk-test" not in outcome.error_message
+    assert outcome.error_message.endswith("[REDACTED]")
+
+
+def test_the_pool_keeps_an_idle_connection_for_the_rounds_of_a_run(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    class Spy(httpx.Client):
+        def __init__(self, **options: object) -> None:
+            captured.update(options)
+            super().__init__(**options)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(httpx, "Client", Spy)
+    new_client().close()
+    limits = captured["limits"]
+    assert isinstance(limits, httpx.Limits)
+    # The default of the library is 5 s, which is shorter than one round of modes.
+    assert limits.keepalive_expiry == KEEPALIVE_EXPIRY_S >= 60.0
+
+
+def test_the_trace_of_the_transport_gives_the_time_of_the_handshake() -> None:
+    blocks = [delta(content="ok"), b"data: [DONE]\n\n"]
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        trace = request.extensions["trace"]
+        # The HTTP transport sends these events when it opens a connection.
+        trace("connection.connect_tcp.started", {})
+        trace("connection.connect_tcp.complete", {})
+        trace("connection.start_tls.started", {})
+        trace("connection.start_tls.complete", {})
+        trace("http11.send_request_headers.started", {})
+        return httpx.Response(200, content=iter(blocks))
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    provider = OpenAICompatProvider(PROVIDER, API_KEY, client=client, clock=TickClock())
+    outcome = provider.stream_chat(MODE, REQUEST, 60.0)
+    assert outcome.ok
+    assert outcome.new_connection is True
+    # The clock moves 1 ms for each reading: the start, then the three connection events.
+    assert outcome.connect_ms == 2.0
+    assert outcome.ttfat_ms == 4.0

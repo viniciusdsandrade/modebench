@@ -55,3 +55,14 @@ def build_providers(
         names = ", ".join(sorted(set(missing)))
         raise PreflightError(f"missing keys in the environment or in .env: {names}")
     return result
+
+
+def close_providers(providers: Iterable[ChatProvider]) -> None:
+    """Close the HTTP client of each provider object, one time for each object."""
+    seen: set[int] = set()
+    for provider in providers:
+        if id(provider) in seen:
+            continue
+        seen.add(id(provider))
+        if isinstance(provider, OpenAICompatProvider):
+            provider.close()
