@@ -200,9 +200,7 @@ class RunStore:
         )
         self._connection.commit()
 
-    def insert_stt_session(
-        self, record: SttSessionRecord, finals: Sequence[SttFinalRecord]
-    ) -> int:
+    def insert_stt_session(self, record: SttSessionRecord, finals: Sequence[SttFinalRecord]) -> int:
         """Write one replay and its settled utterances."""
         names = [item.name for item in fields(SttSessionRecord)]
         cursor = self._connection.execute(_insert_sql("stt_sessions", names), asdict(record))
@@ -238,9 +236,7 @@ class RunStore:
 
     def load_run(self, run_id: str) -> RunRecord:
         """Return the row of one run."""
-        row = self._connection.execute(
-            "SELECT * FROM runs WHERE run_id = ?", (run_id,)
-        ).fetchone()
+        row = self._connection.execute("SELECT * FROM runs WHERE run_id = ?", (run_id,)).fetchone()
         if row is None:
             raise StorageError(f"run not found: {run_id}")
         names = [item.name for item in fields(RunRecord)]

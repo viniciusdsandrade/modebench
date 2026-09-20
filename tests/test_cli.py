@@ -4,9 +4,7 @@ from typer.testing import CliRunner
 
 from helpers import REPO_ROOT
 from modebench.cli import (
-    EXIT_COST_STOP,
     EXIT_ERROR,
-    EXIT_REGRESSION,
     app,
 )
 

@@ -3,18 +3,17 @@
 from pathlib import Path
 
 from helpers import fake_mode
-from modebench.config import Mode, RoleSlo
+from modebench.config import RoleSlo
 from modebench.decision.decide import (
     STATUS_NONE_WITHIN_SLO,
     STATUS_OK,
     decide,
     decide_role,
-    modes_of_run,
     recommended_document,
     slo_problem,
     write_recommended,
 )
-from modebench.decision.regression import Regression, compare_summaries
+from modebench.decision.regression import compare_summaries
 from modebench.stats.aggregate import ModeSummary, RunSummary
 from modebench.stats.percentiles import Estimate
 
@@ -42,7 +41,9 @@ def make_mode_summary(
         total_p50_ms=Estimate(value=2000.0, ci_low=1800.0, ci_high=2200.0, n=50),
         total_p95_ms=Estimate(value=3000.0, ci_low=2800.0, ci_high=3200.0, n=50),
         quality=Estimate(value=quality, ci_low=quality_ci[0], ci_high=quality_ci[1], n=50),
-        question_accuracy=Estimate(value=accuracy, ci_low=accuracy - 0.05, ci_high=accuracy + 0.05, n=50),
+        question_accuracy=Estimate(
+            value=accuracy, ci_low=accuracy - 0.05, ci_high=accuracy + 0.05, n=50
+        ),
         cost_mean_usd=cost_usd,
     )
 
@@ -175,7 +176,7 @@ def test_compare_summaries_detects_latency_and_quality_regressions() -> None:
     curr_ok = make_mode_summary(
         "m1",
         ttfat_p95=1150.0,  # +15% <= 20%
-        quality=0.82,      # >= 0.80 (ci_low)
+        quality=0.82,  # >= 0.80 (ci_low)
         quality_ci=(0.78, 0.86),
     )
     run_ok = base_summary.model_copy(update={"run_id": "run-ok", "modes": [curr_ok]})

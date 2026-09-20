@@ -3,8 +3,6 @@
 import sqlite3
 from pathlib import Path
 
-import pytest
-
 from helpers import REPO_ROOT
 from modebench.config import Profile
 from modebench.dataset.importer import ImportOptions, import_cases
@@ -206,9 +204,7 @@ def test_import_cases_from_sqlite(tmp_path: Path) -> None:
     conn.execute(
         "INSERT INTO segments VALUES (1, 1, 'system', 1000, 'Contexto inicial da reuniao')"
     )
-    conn.execute(
-        "INSERT INTO segments VALUES (2, 1, 'mic', 2000, 'Pergunta sobre os custos')"
-    )
+    conn.execute("INSERT INTO segments VALUES (2, 1, 'mic', 2000, 'Pergunta sobre os custos')")
     conn.execute(
         """
         INSERT INTO interpretations VALUES (

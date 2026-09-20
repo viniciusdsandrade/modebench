@@ -2,9 +2,9 @@
 
 import pytest
 
-from helpers import fake_mode, local_modes_file, openrouter_mode
+from helpers import fake_mode, local_modes_file
 from modebench.config import MeetingConfig, Mode, Price, Profile, ProviderConfig, TranscriptConfig
-from modebench.dataset.schema import FillerFile
+from modebench.dataset.schema import FillerFile, Line
 from modebench.dataset.variants import RenderLine, Variant
 from modebench.errors import CostCeilingExceeded, PrivacyViolation
 from modebench.runner.cost import estimate_plan_cost
@@ -14,7 +14,7 @@ from modebench.runner.guard import (
     enforce_privacy,
     privacy_problems,
 )
-from modebench.runner.plan import PlannedRequest, build_items, build_plan
+from modebench.runner.plan import build_items, build_plan
 
 
 def test_privacy_problems_detects_free_models_and_missing_denial() -> None:
@@ -94,7 +94,9 @@ def test_enforce_cost_ceiling_stops_excessive_or_unknown_spending() -> None:
 
     # Unknown price modes
     with pytest.raises(CostCeilingExceeded, match="These modes have no price"):
-        enforce_cost_ceiling(estimate_usd=5.0, ceiling_usd=10.0, unknown_price_modes=["mystery-mode"])
+        enforce_cost_ceiling(
+            estimate_usd=5.0, ceiling_usd=10.0, unknown_price_modes=["mystery-mode"]
+        )
 
     # Over budget
     with pytest.raises(CostCeilingExceeded, match="above the ceiling"):

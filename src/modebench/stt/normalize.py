@@ -39,9 +39,7 @@ _HUNDREDS = {
     9: "novecentos",
 }
 _SCALES = ((1_000_000_000, "bilhão", "bilhões"), (1_000_000, "milhão", "milhões"))
-_ORDINALS_M = (
-    "primeiro segundo terceiro quarto quinto sexto sétimo oitavo nono décimo"
-).split()
+_ORDINALS_M = ("primeiro segundo terceiro quarto quinto sexto sétimo oitavo nono décimo").split()
 _CONTRACTIONS = {
     "pra": "para",
     "pras": "para as",

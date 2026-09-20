@@ -224,7 +224,9 @@ def truncation_variant(case: Case, pct: int, *, private: bool) -> Variant:
     if case.question is not None:
         text = truncate_words(case.question.text, pct)
         fresh.append(RenderLine(speaker=case.question.speaker, text=text, partial=pct < 100))
-    return _variant(case, private=private, kind="truncation", fresh=tuple(fresh), truncation_pct=pct)
+    return _variant(
+        case, private=private, kind="truncation", fresh=tuple(fresh), truncation_pct=pct
+    )
 
 
 def asr_variant(case: Case, wer: float, seed: int, *, private: bool) -> Variant:
@@ -263,9 +265,7 @@ def noise_variant(kind: NoiseKind, instance: int, seed: int) -> Variant:
     )
 
 
-def select_cases(
-    datasets: Sequence[LoadedDataset], limit: int | None
-) -> list[tuple[Case, bool]]:
+def select_cases(datasets: Sequence[LoadedDataset], limit: int | None) -> list[tuple[Case, bool]]:
     """Return the first `limit` cases in file order, each with its privacy."""
     cases = [(case, dataset.private) for dataset in datasets for case in dataset.data.cases]
     return cases if limit is None else cases[:limit]

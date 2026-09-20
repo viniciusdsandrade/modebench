@@ -271,7 +271,9 @@ def _request_record(
     )
 
 
-def _raw_request(record: RequestRecord, request_id: int, outcome: StreamOutcome) -> dict[str, object]:
+def _raw_request(
+    record: RequestRecord, request_id: int, outcome: StreamOutcome
+) -> dict[str, object]:
     return {
         "type": "request",
         "request_id": request_id,
@@ -314,7 +316,9 @@ def _make_judge(
     if settings.dry_run:
         return FakeJudge()
     judge_mode = settings.bench.judge.mode
-    providers = build_providers(settings.modes_file, [judge_mode], env, dry_run=False, client=client)
+    providers = build_providers(
+        settings.modes_file, [judge_mode], env, dry_run=False, client=client
+    )
     return LlmJudge(
         providers[judge_mode.id],
         settings.modes_file.providers[judge_mode.provider],
@@ -407,8 +411,12 @@ def execute_run(
             prepared.estimate.unknown_price_modes,
         )
     modes = {mode.id: mode for mode in settings.modes}
-    chat = providers if providers is not None else build_providers(
-        settings.modes_file, settings.modes, env, dry_run=settings.dry_run, client=client
+    chat = (
+        providers
+        if providers is not None
+        else build_providers(
+            settings.modes_file, settings.modes, env, dry_run=settings.dry_run, client=client
+        )
     )
     active_judge = judge if judge is not None else _make_judge(prepared, env, client)
     run_id = new_run_id(now())
@@ -447,7 +455,12 @@ def execute_run(
             outcome = chat[mode.id].stream_chat(mode, request, bench.execution.timeout_s)
             metrics = derive_metrics(outcome, routes[mode.id], prepared.prices.get(mode.id))
             record = _request_record(
-                run_id, planned, started_at, request.system + "\x1f" + request.user, outcome, metrics
+                run_id,
+                planned,
+                started_at,
+                request.system + "\x1f" + request.user,
+                outcome,
+                metrics,
             )
             request_id = store.insert_request(record)
             raw.write(_raw_request(record, request_id, outcome))

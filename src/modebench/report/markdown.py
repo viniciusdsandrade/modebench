@@ -279,7 +279,9 @@ def _drilldown(
     lines += ["### Mean quality for each case", ""]
     lines += _table(["Case", *headers_tail], _pivot(singles, mode_ids, by_case, quality, False))
     lines += ["", "### Mean quality for each truncation of the question", ""]
-    lines += _table(["Words said", *headers_tail], _pivot(singles, mode_ids, by_cut, quality, False))
+    lines += _table(
+        ["Words said", *headers_tail], _pivot(singles, mode_ids, by_cut, quality, False)
+    )
     wer_rows = _pivot(singles, mode_ids, by_wer, quality, False)
     if wer_rows:
         lines += ["", "### Mean quality for each synthetic word error rate", ""]
@@ -298,7 +300,9 @@ def _failures(requests: Sequence[StoredRequest], summary: RunSummary) -> list[st
     judge_failures = [(mode.mode_id, mode.judge_failures) for mode in summary.modes]
     lines = ["## Failures", ""]
     if counts:
-        rows = [[f"`{mode_id}`", kind, str(count)] for (mode_id, kind), count in sorted(counts.items())]
+        rows = [
+            [f"`{mode_id}`", kind, str(count)] for (mode_id, kind), count in sorted(counts.items())
+        ]
         lines += _table(["Mode", "Kind", "Requests"], rows) + [""]
     else:
         lines += ["No request failed.", ""]

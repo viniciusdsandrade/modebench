@@ -88,7 +88,9 @@ def test_reasoning_before_content_gives_separate_ttft_and_ttfat() -> None:
                 "choices": [{"delta": {"role": "assistant", "content": ""}}],
             }
         ),
-        delta(reasoning="Pensando", reasoning_details=[{"type": "reasoning.text", "text": "Pensando"}]),
+        delta(
+            reasoning="Pensando", reasoning_details=[{"type": "reasoning.text", "text": "Pensando"}]
+        ),
         delta(reasoning=" mais"),
         delta(content="\n"),
         delta(content="Pergunta: qual é o prazo?"),
@@ -161,7 +163,12 @@ def test_a_stream_that_ends_with_no_blank_line_is_still_read() -> None:
 
 
 def test_malformed_chunks_are_counted_and_do_not_stop_the_stream() -> None:
-    blocks = [b"data: {not json}\n\n", b"data: [1, 2]\n\n", delta(content="ok"), b"data: [DONE]\n\n"]
+    blocks = [
+        b"data: {not json}\n\n",
+        b"data: [1, 2]\n\n",
+        delta(content="ok"),
+        b"data: [DONE]\n\n",
+    ]
     provider, _ = provider_for(blocks)
     outcome = provider.stream_chat(MODE, REQUEST, 60.0)
     assert outcome.ok
@@ -218,7 +225,9 @@ def test_the_body_has_the_raw_parameters_and_never_the_metadata() -> None:
 
 
 def test_mode_parameters_cannot_change_the_keys_that_the_adapter_owns() -> None:
-    mode = Mode(id="m", provider="openrouter", model="real/model", params={"stream": False, "model": "x"})
+    mode = Mode(
+        id="m", provider="openrouter", model="real/model", params={"stream": False, "model": "x"}
+    )
     body = build_body(PROVIDER, mode, ChatRequest(system="", user="hello"))
     assert body["stream"] is True
     assert body["model"] == "real/model"

@@ -25,7 +25,9 @@ def outcome(**fields: object) -> StreamOutcome:
 
 
 def test_completion_tokens_that_include_the_reasoning_are_split() -> None:
-    result = outcome(prompt_tokens=100, completion_tokens=300, reasoning_tokens=250, total_tokens=400)
+    result = outcome(
+        prompt_tokens=100, completion_tokens=300, reasoning_tokens=250, total_tokens=400
+    )
     assert split_output_tokens(result) == (50, 250, 300)
 
 
@@ -130,7 +132,9 @@ def test_the_fake_spec_follows_the_reasoning_level_and_ignores_unknown_keys() ->
     low = FakeSpec.for_mode(openrouter_mode("a", reasoning={"effort": "low"}))
     none = FakeSpec.for_mode(openrouter_mode("b", reasoning={"effort": "none"}))
     assert low.reasoning_ms > none.reasoning_ms == 0.0
-    odd = FakeSpec.for_mode(openrouter_mode("c", fake={"ttft_ms": 50, "nonsense": 1, "quality": True}))
+    odd = FakeSpec.for_mode(
+        openrouter_mode("c", fake={"ttft_ms": 50, "nonsense": 1, "quality": True})
+    )
     assert odd.ttft_ms == 50.0
     assert fake_params(ttft_ms=5) == {"fake": {"ttft_ms": 5}}
 

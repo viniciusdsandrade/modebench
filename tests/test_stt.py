@@ -6,9 +6,9 @@ import pytest
 
 from modebench.stt.assemblyai import AssemblyAiAdapter, AssemblyAiParser
 from modebench.stt.base import CLOSED, ERROR, FINAL, OPEN, PARTIAL
-from modebench.stt.config import AudioItem, ReferenceUtterance, SttBilling, SttNormalization
+from modebench.stt.config import AudioItem, ReferenceUtterance, SttBilling
 from modebench.stt.elevenlabs import ElevenLabsAdapter, ElevenLabsParser
-from modebench.stt.fake import FakeSttAdapter, FakeSttParser
+from modebench.stt.fake import FakeSttAdapter
 from modebench.stt.metrics import collect_finals, session_cost
 from modebench.stt.normalize import normalize_pt
 from modebench.stt.replay import EventRecord, SessionTrace
@@ -68,7 +68,9 @@ def test_fake_stt_adapter_and_parser() -> None:
     assert adapter.audio_message(b"\x00\x01", 16000) == b"\x00\x01"
 
     parser = adapter.new_parser()
-    events = parser.parse('{"type":"final","text":"palavra teste","start_ms":100,"end_ms":500,"speaker":"spk1"}')
+    events = parser.parse(
+        '{"type":"final","text":"palavra teste","start_ms":100,"end_ms":500,"speaker":"spk1"}'
+    )
     assert len(events) == 1
     ev = events[0]
     assert ev.kind == FINAL
@@ -94,13 +96,15 @@ def test_assemblyai_adapter_and_parser() -> None:
     assert parser.parse('{"type":"Begin"}')[0].kind == OPEN
 
     # 2. Interim turn (partial)
-    partial_msg = json.dumps({
-        "type": "Turn",
-        "transcript": "Bom dia",
-        "end_of_turn": False,
-        "turn_order": 1,
-        "speaker_label": "A",
-    })
+    partial_msg = json.dumps(
+        {
+            "type": "Turn",
+            "transcript": "Bom dia",
+            "end_of_turn": False,
+            "turn_order": 1,
+            "speaker_label": "A",
+        }
+    )
     events = parser.parse(partial_msg)
     assert len(events) == 1
     assert events[0].kind == PARTIAL
@@ -108,14 +112,19 @@ def test_assemblyai_adapter_and_parser() -> None:
     assert events[0].speaker == "A"
 
     # 3. Final turn
-    final_msg = json.dumps({
-        "type": "Turn",
-        "transcript": "Bom dia a todos.",
-        "end_of_turn": True,
-        "turn_order": 1,
-        "speaker_label": "A",
-        "words": [{"text": "Bom", "start": 100, "end": 200}, {"text": "todos.", "start": 300, "end": 500}],
-    })
+    final_msg = json.dumps(
+        {
+            "type": "Turn",
+            "transcript": "Bom dia a todos.",
+            "end_of_turn": True,
+            "turn_order": 1,
+            "speaker_label": "A",
+            "words": [
+                {"text": "Bom", "start": 100, "end": 200},
+                {"text": "todos.", "start": 300, "end": 500},
+            ],
+        }
+    )
     events = parser.parse(final_msg)
     assert events[0].kind == FINAL
     assert events[0].audio_start_ms == 100.0
@@ -143,19 +152,23 @@ def test_elevenlabs_adapter_and_parser() -> None:
     parser = ElevenLabsParser()
 
     # Partial transcript
-    part_events = parser.parse(json.dumps({"message_type": "partial_transcript", "text": "Boa tarde"}))
+    part_events = parser.parse(
+        json.dumps({"message_type": "partial_transcript", "text": "Boa tarde"})
+    )
     assert len(part_events) == 1
     assert part_events[0].kind == PARTIAL
     assert part_events[0].text == "Boa tarde"
 
     # Committed transcript with timestamps in seconds
-    commit_msg = json.dumps({
-        "message_type": "committed_transcript_with_timestamps",
-        "words": [
-            {"text": "Boa", "start": 0.5, "end": 0.8, "speaker_id": "spk_1"},
-            {"text": "tarde", "start": 0.9, "end": 1.2, "speaker_id": "spk_1"},
-        ],
-    })
+    commit_msg = json.dumps(
+        {
+            "message_type": "committed_transcript_with_timestamps",
+            "words": [
+                {"text": "Boa", "start": 0.5, "end": 0.8, "speaker_id": "spk_1"},
+                {"text": "tarde", "start": 0.9, "end": 1.2, "speaker_id": "spk_1"},
+            ],
+        }
+    )
     final_events = parser.parse(commit_msg)
     assert len(final_events) == 1
     fe = final_events[0]
@@ -176,6 +189,7 @@ def test_collect_finals_calculates_latency_against_reference() -> None:
     )
 
     from modebench.stt.base import SttEvent
+
     trace = SessionTrace(
         adapter_name="fake",
         audio_id="aud-1",
@@ -184,7 +198,14 @@ def test_collect_finals_calculates_latency_against_reference() -> None:
         events=[
             EventRecord(
                 at_ms=1100.0,
-                event=SttEvent(kind=FINAL, text="Olá mundo", utterance=0, audio_start_ms=200.0, audio_end_ms=800.0, speaker="A"),
+                event=SttEvent(
+                    kind=FINAL,
+                    text="Olá mundo",
+                    utterance=0,
+                    audio_start_ms=200.0,
+                    audio_end_ms=800.0,
+                    speaker="A",
+                ),
             )
         ],
     )

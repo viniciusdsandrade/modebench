@@ -37,9 +37,7 @@ def privacy_problems(mode: Mode, provider: ProviderConfig) -> list[str]:
     return problems
 
 
-def enforce_privacy(
-    has_private_data: bool, routes: Iterable[tuple[Mode, ProviderConfig]]
-) -> None:
+def enforce_privacy(has_private_data: bool, routes: Iterable[tuple[Mode, ProviderConfig]]) -> None:
     """Raise PrivacyViolation if private data would go to a route that is not safe.
 
     The run stops as a whole. It does not continue with the safe modes only,

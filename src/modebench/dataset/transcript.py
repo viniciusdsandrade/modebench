@@ -53,9 +53,7 @@ def render_lines(lines: Sequence[RenderLine], labels: Labels) -> str:
     return "\n".join(rendered)
 
 
-def render_window(
-    prior: Sequence[RenderLine], fresh: Sequence[RenderLine], labels: Labels
-) -> str:
+def render_window(prior: Sequence[RenderLine], fresh: Sequence[RenderLine], labels: Labels) -> str:
     """Return the two stretches below their headings. An empty stretch reads `(nothing)`."""
     earlier_text = render_lines(prior, labels) if prior else NOTHING_HERE
     fresh_text = render_lines(fresh, labels) if fresh else NOTHING_HERE

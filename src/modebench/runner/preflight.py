@@ -62,9 +62,7 @@ def catalogue_price(entry: Mapping[str, Any]) -> Price | None:
     if prompt is None or completion is None:
         return None
     cached = _per_mtok(pricing.get("input_cache_read")) if "input_cache_read" in pricing else None
-    return Price(
-        usd_per_mtok_in=prompt, usd_per_mtok_out=completion, usd_per_mtok_cached_in=cached
-    )
+    return Price(usd_per_mtok_in=prompt, usd_per_mtok_out=completion, usd_per_mtok_cached_in=cached)
 
 
 def fetch_catalogue(

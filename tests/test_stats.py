@@ -2,10 +2,7 @@
 
 import pytest
 
-from modebench.config import StatsConfig
 from modebench.stats.aggregate import (
-    ModeSummary,
-    RunSummary,
     effective_latency,
 )
 from modebench.stats.pareto import ParetoPoint, dominates, pareto_front
@@ -142,4 +139,7 @@ def test_effective_latency_counts_failure_as_timeout() -> None:
         total_ms=2000.0,
         ttfat_ms=500.0,
     )
-    assert effective_latency(rec_fail_with_ttfat, rec_fail_with_ttfat.ttfat_ms, timeout_ms) == timeout_ms
+    assert (
+        effective_latency(rec_fail_with_ttfat, rec_fail_with_ttfat.ttfat_ms, timeout_ms)
+        == timeout_ms
+    )
