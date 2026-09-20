@@ -7,6 +7,7 @@ the baseline. It holds identifiers and numbers. It holds no transcript text,
 so a report of a private dataset shows no meeting content.
 """
 
+import re
 from collections.abc import Mapping, Sequence
 
 from modebench.config import Mode, RoleSlo
@@ -18,6 +19,21 @@ from modebench.stats.percentiles import Estimate, percentile
 from modebench.storage.records import ScoreRecord, StoredRequest
 
 REPORT_NAME = "report.md"
+COMPLETED = "completed"
+_NUMBER = re.compile(r"\d+(?:\.\d+)?")
+
+
+def cell(text: str) -> str:
+    """Return a text that cannot break a table row or start a Markdown construct.
+
+    Some cells hold text that a provider sent (the name of the upstream, an
+    error message). A pipe in such a text would move each column after it, and
+    a bracket could make a link or an image that the viewer then loads.
+    """
+    flat = " ".join(text.split())
+    for char in ("\\", "|", "[", "]", "<", ">"):
+        flat = flat.replace(char, "\\" + char)
+    return flat
 
 
 def _table(headers: Sequence[str], rows: Sequence[Sequence[str]]) -> list[str]:
@@ -56,6 +72,12 @@ def _header(summary: RunSummary) -> list[str]:
     if summary.dry_run:
         lines += [
             "> **Dry run.** The fake provider made these numbers. Do not use them for a decision.",
+            "",
+        ]
+    if summary.status != COMPLETED:
+        lines += [
+            f"> **Run not complete** (status `{summary.status}`). Some requests or some grades "
+            "are absent. Do not use these numbers for a decision or for a baseline.",
             "",
         ]
     rows = [
@@ -109,7 +131,9 @@ def _modes_table(summary: RunSummary) -> list[str]:
     ]
     rows = []
     for mode in sorted(summary.modes, key=lambda item: item.ttfat_p95_ms.value):
-        served = ", ".join(f"{name} ({count})" for name, count in sorted(mode.served_by.items()))
+        served = ", ".join(
+            f"{cell(name)} ({count})" for name, count in sorted(mode.served_by.items())
+        )
         rows.append(
             [
                 f"`{mode.mode_id}`",
@@ -238,9 +262,10 @@ def _pivot(
     return rows
 
 
-def _natural(text: str) -> tuple[int, str]:
-    digits = "".join(char for char in text if char.isdigit())
-    return (int(digits) if digits else 0, text)
+def _natural(text: str) -> tuple[float, str]:
+    """Return a sort key that puts the first number of a label in numeric order."""
+    match = _NUMBER.search(text)
+    return (float(match.group(0)) if match else 0.0, text)
 
 
 def _drilldown(
@@ -310,6 +335,18 @@ def _failures(requests: Sequence[StoredRequest], summary: RunSummary) -> list[st
     if failed:
         text = ", ".join(f"`{mode_id}`: {count}" for mode_id, count in failed)
         lines += [f"Answers with no valid verdict from the judge: {text}.", ""]
+    ungraded = [(mode.mode_id, mode.judged, mode.unjudged) for mode in summary.modes]
+    ungraded = [item for item in ungraded if item[2]]
+    if ungraded:
+        text = ", ".join(
+            f"`{mode_id}`: {unjudged} of {judged + unjudged}"
+            for mode_id, judged, unjudged in ungraded
+        )
+        lines += [
+            f"Answers that need a verdict and have none: {text}. A mode with no verdict has "
+            "no quality estimate.",
+            "",
+        ]
     return lines
 
 
@@ -324,7 +361,10 @@ def _baseline(
         before = baseline.mode(mode.mode_id)
         if before is None:
             continue
-        change = (mode.ttfat_p95_ms.value / before.ttfat_p95_ms.value - 1.0) * 100.0
+        change_text = "n/a"
+        if before.ttfat_p95_ms.value > 0:
+            change = (mode.ttfat_p95_ms.value / before.ttfat_p95_ms.value - 1.0) * 100.0
+            change_text = f"{change:+.1f}%"
         quality_before = before.quality.value if before.quality is not None else None
         quality_now = mode.quality.value if mode.quality is not None else None
         rows.append(
@@ -332,7 +372,7 @@ def _baseline(
                 f"`{mode.mode_id}`",
                 f"{before.ttfat_p95_ms.value:.0f}",
                 f"{mode.ttfat_p95_ms.value:.0f}",
-                f"{change:+.1f}%",
+                change_text,
                 _num(quality_before, 3),
                 _num(quality_now, 3),
             ]
@@ -346,6 +386,10 @@ def _baseline(
         "Quality",
     ]
     lines += _table(headers, rows) + [""]
+    for warning in comparison.warnings:
+        lines.append(f"- Warning: {warning}.")
+    if comparison.warnings:
+        lines.append("")
     if comparison.regressions:
         lines.append("**Regressions:**")
         for item in comparison.regressions:

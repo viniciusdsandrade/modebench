@@ -15,12 +15,15 @@ from modebench.config import (
 from modebench.dataset.schema import FillerBlock, FillerFile, Line
 from modebench.dataset.transcript import Labels
 from modebench.dataset.variants import RenderLine, Variant
-from modebench.errors import CostCeilingExceeded, PrivacyViolation
-from modebench.runner.cost import estimate_cost
+from modebench.errors import ConfigError, CostCeilingExceeded, PrivacyViolation
+from modebench.providers.base import StreamOutcome
+from modebench.providers.metrics import DerivedMetrics, assumed_cost
+from modebench.runner.cost import CostEstimate, ModeEstimate, estimate_cost
 from modebench.runner.guard import (
     check_running_cost,
     enforce_cost_ceiling,
     enforce_privacy,
+    is_openrouter,
     privacy_problems,
 )
 from modebench.runner.plan import build_items, build_plan
@@ -249,3 +252,101 @@ def test_estimate_plan_cost_uses_prices() -> None:
     )
     assert estimate.unknown_price_modes == []
     assert estimate.total_usd > 0.0
+
+
+def test_the_host_of_the_endpoint_decides_that_a_route_is_openrouter() -> None:
+    mislabelled = ProviderConfig(
+        kind="openai_compat",
+        base_url="https://openrouter.ai/api/v1",
+        api_key_env="K",
+        privacy="attested",
+    )
+    attested = Mode(id="attested", provider="or", model="google/gemini", private_data_ok=True)
+    assert is_openrouter(mislabelled)
+    # The statement of the operator is not sufficient on OpenRouter: the route must deny.
+    assert any("data_collection" in item for item in privacy_problems(attested, mislabelled))
+    denies = attested.model_copy(update={"params": {"provider": {"data_collection": "deny"}}})
+    assert privacy_problems(denies, mislabelled) == []
+
+    local_label = mislabelled.model_copy(update={"privacy": "local"})
+    assert any("data_collection" in item for item in privacy_problems(attested, local_label))
+    subdomain = mislabelled.model_copy(update={"base_url": "https://eu.OpenRouter.ai/api/v1"})
+    assert is_openrouter(subdomain)
+    lookalike = mislabelled.model_copy(update={"base_url": "https://notopenrouter.ai/v1"})
+    assert not is_openrouter(lookalike)
+    true_local = ProviderConfig(kind="fake", privacy="local")
+    assert privacy_problems(attested, true_local) == []
+
+
+def test_the_estimate_of_one_request_and_the_cost_that_the_ceiling_assumes() -> None:
+    estimate = CostEstimate(
+        modes=[
+            ModeEstimate("priced", requests=4, input_tokens=0, output_tokens=0, cost_usd=2.0),
+            ModeEstimate("no-price", requests=4, input_tokens=0, output_tokens=0, cost_usd=None),
+            ModeEstimate("idle", requests=0, input_tokens=0, output_tokens=0, cost_usd=0.0),
+        ]
+    )
+    assert estimate.per_request_usd("priced") == 0.5
+    assert estimate.per_request_usd("no-price") == 0.0
+    assert estimate.per_request_usd("idle") == 0.0
+    assert estimate.per_request_usd("absent") == 0.0
+    assert estimate.unknown_price_modes == ["no-price"]
+    assert estimate.requests == 8
+
+    unknown = DerivedMetrics(None, None, None, None, "unknown")
+    known = DerivedMetrics(None, None, None, 0.2, "usage")
+    answered = StreamOutcome(ok=True, total_ms=10.0)
+    assert assumed_cost(answered, unknown, 0.5) == 0.5
+    assert assumed_cost(answered, known, 0.5) == 0.0
+    for kind in ("timeout", "stream_error", "empty_output"):
+        billed = StreamOutcome(ok=False, total_ms=10.0, error_kind=kind)
+        assert assumed_cost(billed, unknown, 0.5) == 0.5
+    for kind in ("http_error", "transport_error"):
+        refused = StreamOutcome(ok=False, total_ms=10.0, error_kind=kind)
+        assert assumed_cost(refused, unknown, 0.5) == 0.0
+
+
+def test_the_estimate_counts_one_judge_request_for_each_measured_request() -> None:
+    variant = Variant(
+        variant_id="var-1",
+        case_id="case-1",
+        kind="truncation",
+        truncation_pct=100,
+        asr_wer=0.0,
+        noise_kind=None,
+        expect_refusal=False,
+        private=False,
+        earlier=(),
+        fresh=(RenderLine(speaker="mic", text="Qual o prazo?"),),
+        gold_question="Qual o prazo?",
+        key_points=(),
+        reference_answer="",
+    )
+    filler = FillerFile(
+        blocks=[FillerBlock(topic="geral", lines=[Line(speaker="system", text="Discussao.")])]
+    )
+    profile = Profile(
+        durations_min=[5], baseline_duration_min=5, truncations=[100], max_cost_usd=10.0
+    )
+    items = build_items([variant], profile, filler, TranscriptConfig(), MeetingConfig(), seed=1)
+    plan = build_plan(items, ["m"], repetitions=2, warmup=1)
+    mode = Mode(id="m", provider="local", model="fake/m", params={"reasoning": {"effort": "high"}})
+    estimate = estimate_cost(
+        plan,
+        {"m": mode},
+        {"m": Price(usd_per_mtok_in=1.0, usd_per_mtok_out=1.0), "judge": None},
+        "preprompt",
+        Labels(mic="MIC", system="SYSTEM", partial_marker="*"),
+        CostConfig(),
+        judge_prompt_chars=700,
+    )
+    by_id = {item.mode_id: item for item in estimate.modes}
+    assert by_id["m"].requests == 3
+    # The warm-up request is not graded.
+    assert by_id["judge"].requests == 2
+    assert by_id["m"].output_tokens == 3 * (220 + 4096)
+    assert estimate.unknown_price_modes == ["judge"]
+    with pytest.raises(ConfigError, match="no item"):
+        build_plan([], ["m"], 1, 0)
+    with pytest.raises(ConfigError, match="no mode"):
+        build_plan(items, [], 1, 0)

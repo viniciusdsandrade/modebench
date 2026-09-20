@@ -184,19 +184,93 @@ def test_compare_summaries_detects_latency_and_quality_regressions() -> None:
     assert not cmp_ok.failed
     assert len(cmp_ok.regressions) == 0
 
-    # 2. Regressed latency: +30% > 20%
-    curr_slow = make_mode_summary("m1", ttfat_p95=1350.0, quality=0.85)
+    # 2. Regressed latency: +100%, and the interval is fully above the baseline (ends at 1600)
+    curr_slow = make_mode_summary("m1", ttfat_p95=2000.0, ttfat_ci=(1800.0, 2200.0), quality=0.85)
     run_slow = base_summary.model_copy(update={"run_id": "run-slow", "modes": [curr_slow]})
     cmp_slow = compare_summaries(run_slow, base_summary, p95_increase_ratio=0.20)
     assert cmp_slow.failed
-    assert any(r.metric == "ttfat_p95_ms" for r in cmp_slow.regressions)
+    assert [r.metric for r in cmp_slow.regressions] == ["ttfat_p95_ms"]
 
-    # 3. Regressed quality: below baseline ci_low (0.75 < 0.80)
-    curr_poor = make_mode_summary("m1", ttfat_p95=1000.0, quality=0.75)
+    # 3. Above the ratio, but the intervals overlap: the difference is inside the noise
+    curr_noisy = make_mode_summary("m1", ttfat_p95=1350.0, ttfat_ci=(1100.0, 1700.0), quality=0.85)
+    run_noisy = base_summary.model_copy(update={"run_id": "run-noisy", "modes": [curr_noisy]})
+    assert not compare_summaries(run_noisy, base_summary, p95_increase_ratio=0.20).failed
+
+    # 4. Regressed quality: the interval ends below the baseline interval (0.78 < 0.80)
+    curr_poor = make_mode_summary("m1", ttfat_p95=1000.0, quality=0.72, quality_ci=(0.66, 0.78))
     run_poor = base_summary.model_copy(update={"run_id": "run-poor", "modes": [curr_poor]})
     cmp_poor = compare_summaries(run_poor, base_summary, p95_increase_ratio=0.20)
     assert cmp_poor.failed
-    assert any(r.metric == "quality" for r in cmp_poor.regressions)
+    assert [r.metric for r in cmp_poor.regressions] == ["quality"]
+
+    # 5. A lower point estimate whose interval still overlaps the baseline is a tie
+    curr_tie = make_mode_summary("m1", ttfat_p95=1000.0, quality=0.75, quality_ci=(0.70, 0.81))
+    run_tie = base_summary.model_copy(update={"run_id": "run-tie", "modes": [curr_tie]})
+    assert not compare_summaries(run_tie, base_summary, p95_increase_ratio=0.20).failed
+
+
+def test_compare_summaries_warns_when_the_runs_are_not_comparable() -> None:
+    summary = RunSummary(
+        run_id="run-base",
+        suite="analyze",
+        profile="quick",
+        started_at="2026-09-01T00:00:00Z",
+        status="completed",
+        dry_run=False,
+        git_sha="abcdef1",
+        git_dirty=False,
+        config_hash="cfg1",
+        dataset_hash="ds1",
+        prompt_hash="pr1",
+        timeout_s=60.0,
+        judge_model="openrouter:judge",
+        modes=[make_mode_summary("m1"), make_mode_summary("old-mode")],
+    )
+    assert compare_summaries(summary, summary, 0.20).warnings == []
+
+    other = summary.model_copy(
+        update={
+            "profile": "smoke",
+            "dataset_hash": "ds2",
+            "timeout_s": 30.0,
+            "judge_model": "",
+            "modes": [make_mode_summary("m1"), make_mode_summary("new-mode")],
+        }
+    )
+    result = compare_summaries(other, summary, 0.20)
+    text = " | ".join(result.warnings)
+    assert "profile is smoke in this run and quick in the baseline" in text
+    assert "dataset hash" in text
+    assert "timeout is 30 s" in text
+    assert "judge is none" in text
+    assert "prompt hash" not in text
+    assert result.only_in_baseline == ["old-mode"]
+    assert result.only_in_current == ["new-mode"]
+
+
+def test_slo_problem_needs_verdicts_for_most_answers() -> None:
+    slo = RoleSlo(ttfat_p95_ms_max=5000.0, question_accuracy_min=0.5)
+    graded = make_mode_summary("graded").model_copy(update={"judged": 95, "unjudged": 5})
+    assert slo_problem(graded, slo) is None
+
+    half = make_mode_summary("half").model_copy(update={"judged": 40, "unjudged": 60})
+    problem = slo_problem(half, slo)
+    assert problem is not None
+    assert "graded only 40%" in problem
+
+    none = make_mode_summary("none").model_copy(update={"quality": None})
+    assert slo_problem(none, slo) == "no quality data (the run had no judge)"
+
+
+def test_decide_role_skips_a_mode_that_does_not_serve_the_role() -> None:
+    slo = RoleSlo(ttfat_p95_ms_max=5000.0, question_accuracy_min=0.7)
+    summary_only = fake_mode("summary-only").model_copy(update={"roles": ["summary"]})
+    modes = {"summary-only": summary_only, "any": fake_mode("any")}
+    decision = decide_role(
+        "analysis", slo, [make_mode_summary("summary-only"), make_mode_summary("any")], modes
+    )
+    assert decision.winner == "any"
+    assert "does not serve the role analysis" in decision.rejected["summary-only"]
 
 
 def test_recommended_document_and_write(tmp_path: Path) -> None:

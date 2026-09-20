@@ -33,8 +33,12 @@ from modebench.dataset.variants import Variant, build_variants
 from modebench.errors import ConfigError, PrivacyViolation
 from modebench.hashing import git_dirty, git_sha, sha256_files, sha256_text, stable_seed
 from modebench.providers.base import ChatProvider, StreamOutcome
-from modebench.providers.metrics import DerivedMetrics, derive_metrics
-from modebench.providers.registry import build_providers, effective_provider_config
+from modebench.providers.metrics import DerivedMetrics, assumed_cost, derive_metrics
+from modebench.providers.registry import (
+    build_providers,
+    close_providers,
+    effective_provider_config,
+)
 from modebench.quality.deterministic import score_answer, to_records
 from modebench.quality.judge import FakeJudge, Judge, JudgeItem, LlmJudge, verdict_records
 from modebench.quality.metrics import quality_records, request_quality
@@ -52,9 +56,31 @@ from modebench.storage.jsonl import RAW_NAME, RawLog
 from modebench.storage.records import RequestRecord, RunRecord, ScoreRecord
 
 SUITE = "analyze"
+STATUS_RUNNING = "running"
 STATUS_COMPLETED = "completed"
 STATUS_COST_STOP = "stopped_at_cost_ceiling"
+STATUS_FAILED = "failed"
+STATUS_INTERRUPTED = "interrupted"
 Progress = Callable[[int, int, RequestRecord], None]
+
+
+@dataclass(slots=True)
+class _Ledger:
+    """The money of a run.
+
+    `measured_usd` is what the providers reported or what the price table
+    gives. `assumed_usd` is the estimate of each request that can be billed
+    and has no usage block. The ceiling reads the sum, and the run record
+    keeps only the measured part.
+    """
+
+    measured_usd: float = 0.0
+    assumed_usd: float = 0.0
+
+    @property
+    def guarded_usd(self) -> float:
+        """Return the amount that the cost ceiling compares."""
+        return self.measured_usd + self.assumed_usd
 
 
 @dataclass(frozen=True, slots=True)
@@ -165,6 +191,11 @@ def prepare_run(
     judge_active = settings.judge_enabled and bench.judge.enabled
     judge_prompt = ""
     if judge_active:
+        if JUDGE_ID in mode_ids:
+            raise ConfigError(
+                f"the mode identifier {JUDGE_ID} is that of the judge in the cost estimate. "
+                "Give the mode a different identifier."
+            )
         _check_judge(settings)
         judge_prompt = _read_prompt([resolve_path(root, bench.paths.judge_prompt_path)])
     has_private = any(variant.private for variant in variants)
@@ -245,7 +276,7 @@ def _request_record(
         click_index=item.click_index,
         cache_state=item.cache_state,
         expect_refusal=variant.expect_refusal,
-        private=variant.private,
+        private=item.private,
         started_at=started_at,
         ok=outcome.ok,
         error_kind=outcome.error_kind,
@@ -299,6 +330,9 @@ def _raw_request(
             "reported_cost_usd": outcome.reported_cost_usd,
         },
         "served_by": record.served_by,
+        "finish_reason": outcome.finish_reason,
+        "new_connection": outcome.new_connection,
+        "connect_ms": outcome.connect_ms,
         "malformed_chunks": outcome.malformed_chunks,
         "reasoning_chars": outcome.reasoning_chars,
         "events": [[event.offset_ms, event.kind, event.chars] for event in outcome.events],
@@ -308,7 +342,10 @@ def _raw_request(
 
 
 def _make_judge(
-    prepared: PreparedRun, env: Mapping[str, str], client: httpx.Client | None
+    prepared: PreparedRun,
+    env: Mapping[str, str],
+    client: httpx.Client | None,
+    sleep: Callable[[float], None],
 ) -> Judge | None:
     settings = prepared.settings
     if not prepared.judge_active:
@@ -327,6 +364,9 @@ def _make_judge(
         price=prepared.prices.get(JUDGE_ID),
         max_attempts=settings.bench.judge.max_attempts,
         timeout_s=settings.bench.execution.timeout_s,
+        assumed_cost_usd=prepared.estimate.per_request_usd(JUDGE_ID),
+        pause_after_error_s=settings.bench.execution.pause_after_error_s,
+        sleep=sleep,
     )
 
 
@@ -344,13 +384,18 @@ def _score_request(
     planned: PlannedRequest,
     prepared: PreparedRun,
     judge: Judge | None,
-) -> tuple[list[ScoreRecord], float]:
-    """Return the score rows of one measured request, and what the judge cost."""
+) -> tuple[list[ScoreRecord], float, float]:
+    """Return the score rows of one measured request, and what the judge cost.
+
+    The two amounts are the measured cost of the judge and the cost that the
+    ceiling assumes for the attempts of the judge that have no usage block.
+    """
     variant = planned.item.variant
     fixed = score_answer(record.answer, expect_refusal=variant.expect_refusal)
     rows = to_records(fixed)
     verdict = None
     judge_cost = 0.0
+    judge_assumed = 0.0
     if judge is not None and record.ok and fixed.non_empty:
         fresh_text = render_lines(variant.fresh, prepared.labels) if variant.fresh else NOTHING_HERE
         result = judge.judge(
@@ -364,6 +409,7 @@ def _score_request(
             )
         )
         judge_cost = result.cost_usd
+        judge_assumed = result.assumed_cost_usd
         verdict = result.verdict
         if verdict is not None:
             rows.extend(verdict_records(verdict, len(variant.key_points)))
@@ -378,7 +424,7 @@ def _score_request(
         weights=prepared.settings.bench.quality_weights,
     )
     rows.extend(quality_records(quality))
-    return rows, judge_cost
+    return rows, judge_cost, judge_assumed
 
 
 def execute_run(
@@ -397,12 +443,12 @@ def execute_run(
 
     The two guards run again here. A real run stops when the money spent goes
     above the ceiling. The requests that it made stay in the database, and the
-    status of the run says that it is not complete.
+    status of the run says that it is not complete. A run that an error or the
+    operator stops gets a status of its own, so it never stays `running`.
     """
     settings = prepared.settings
     bench = settings.bench
     route_list = _routes(settings, prepared.judge_active)
-    routes = {mode.id: provider for mode, provider in route_list}
     enforce_privacy(prepared.has_private_data, route_list)
     if not settings.dry_run:
         enforce_cost_ceiling(
@@ -410,15 +456,14 @@ def execute_run(
             prepared.ceiling_usd,
             prepared.estimate.unknown_price_modes,
         )
-    modes = {mode.id: mode for mode in settings.modes}
-    chat = (
-        providers
-        if providers is not None
-        else build_providers(
+    owned_chat: Mapping[str, ChatProvider] = {}
+    if providers is None:
+        owned_chat = build_providers(
             settings.modes_file, settings.modes, env, dry_run=settings.dry_run, client=client
         )
-    )
-    active_judge = judge if judge is not None else _make_judge(prepared, env, client)
+    chat = providers if providers is not None else owned_chat
+    owned_judge = _make_judge(prepared, env, client, sleep) if judge is None else None
+    active_judge = judge if judge is not None else owned_judge
     run_id = new_run_id(now())
     store.create_run(
         RunRecord(
@@ -426,7 +471,7 @@ def execute_run(
             suite=SUITE,
             profile=settings.profile_name,
             started_at=now().isoformat(),
-            status="running",
+            status=STATUS_RUNNING,
             dry_run=settings.dry_run,
             git_sha=git_sha(settings.root),
             git_dirty=git_dirty(settings.root),
@@ -441,14 +486,47 @@ def execute_run(
             estimated_cost_usd=prepared.estimate.total_usd,
         )
     )
+    ledger = _Ledger()
+    status = STATUS_FAILED
+    try:
+        status = _execute(
+            prepared, store, run_id, route_list, chat, active_judge, ledger, progress, sleep, now
+        )
+    except KeyboardInterrupt:
+        status = STATUS_INTERRUPTED
+        raise
+    finally:
+        store.finish_run(run_id, status, now().isoformat(), ledger.measured_usd)
+        close_providers(owned_chat.values())
+        if isinstance(owned_judge, LlmJudge):
+            owned_judge.close()
+    return run_id
+
+
+def _execute(
+    prepared: PreparedRun,
+    store: RunStore,
+    run_id: str,
+    route_list: list[tuple[Mode, ProviderConfig]],
+    chat: Mapping[str, ChatProvider],
+    judge: Judge | None,
+    ledger: _Ledger,
+    progress: Progress | None,
+    sleep: Callable[[float], None],
+    now: Callable[[], datetime],
+) -> str:
+    """Send the requests, score the answers and return the status of the run."""
+    settings = prepared.settings
+    bench = settings.bench
+    routes = {mode.id: provider for mode, provider in route_list}
+    modes = {mode.id: mode for mode in settings.modes}
     runs_dir = resolve_path(settings.root, bench.paths.runs_dir)
-    spent = 0.0
     status = STATUS_COMPLETED
     measured: list[tuple[int, PlannedRequest, RequestRecord]] = []
     with RawLog(runs_dir / run_id / RAW_NAME) as raw:
         for planned in prepared.plan:
             mode = modes[planned.mode_id]
-            if planned.item.variant.private and privacy_problems(mode, routes[mode.id]):
+            if planned.item.private and privacy_problems(mode, routes[mode.id]):
                 raise PrivacyViolation(f"{mode.id} must not receive the private item")
             request = render_request(planned, run_id, prepared.preprompt, prepared.labels)
             started_at = now().isoformat()
@@ -464,13 +542,16 @@ def execute_run(
             )
             request_id = store.insert_request(record)
             raw.write(_raw_request(record, request_id, outcome))
-            spent += metrics.cost_usd or 0.0
+            ledger.measured_usd += metrics.cost_usd or 0.0
+            ledger.assumed_usd += assumed_cost(
+                outcome, metrics, prepared.estimate.per_request_usd(mode.id)
+            )
             if not planned.warmup:
                 measured.append((request_id, planned, record))
             if progress is not None:
                 progress(planned.seq + 1, len(prepared.plan), record)
             if not settings.dry_run:
-                if check_running_cost(spent, prepared.ceiling_usd):
+                if check_running_cost(ledger.guarded_usd, prepared.ceiling_usd):
                     status = STATUS_COST_STOP
                     break
                 pause = (
@@ -485,8 +566,8 @@ def execute_run(
         for index in order:
             request_id, planned, record = measured[index]
             stopped = status == STATUS_COST_STOP
-            rows, judge_cost = _score_request(
-                record, planned, prepared, None if stopped else active_judge
+            rows, judge_cost, judge_assumed = _score_request(
+                record, planned, prepared, None if stopped else judge
             )
             store.insert_scores(request_id, rows)
             raw.write(
@@ -496,8 +577,10 @@ def execute_run(
                     "scores": [[row.scorer, row.name, row.value, row.detail] for row in rows],
                 }
             )
-            spent += judge_cost
-            if not settings.dry_run and check_running_cost(spent, prepared.ceiling_usd):
+            ledger.measured_usd += judge_cost
+            ledger.assumed_usd += judge_assumed
+            if not settings.dry_run and check_running_cost(
+                ledger.guarded_usd, prepared.ceiling_usd
+            ):
                 status = STATUS_COST_STOP
-    store.finish_run(run_id, status, now().isoformat(), spent)
-    return run_id
+    return status

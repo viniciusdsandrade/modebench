@@ -76,7 +76,8 @@ class ProviderConfig(StrictModel):
 class Mode(StrictModel):
     """A provider, a model and the raw parameters that go to the API unchanged."""
 
-    id: str = Field(min_length=1)
+    # The identifier goes into Markdown tables and code spans as it is.
+    id: str = Field(min_length=1, pattern=r"^[^\s|`]+$")
     provider: str
     model: str = Field(min_length=1)
     params: dict[str, Any] = Field(default_factory=dict)
@@ -202,6 +203,8 @@ class Profile(StrictModel):
     def _check_ranges(self) -> Self:
         if any(pct < 1 or pct > 100 for pct in self.truncations):
             raise ValueError("a truncation is a percentage from 1 to 100")
+        if any(minutes <= 0 for minutes in self.durations_min):
+            raise ValueError("a transcript length is a number of minutes above 0")
         if any(wer <= 0 or wer > 0.5 for wer in self.asr_wers):
             raise ValueError("a synthetic WER is above 0 and at most 0.5")
         if self.baseline_duration_min not in self.durations_min:

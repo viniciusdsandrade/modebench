@@ -4,7 +4,9 @@ The rule has three steps, and each step is a fact that the report can show:
 
 1. A mode is eligible for a role if it serves the role and meets the
    objective of the role: the p95 of the time to the first answer token, the
-   accuracy of the inferred question and, if it is set, the error rate.
+   accuracy of the inferred question and, if it is set, the error rate. A
+   mode whose answers have too few verdicts of the judge is not eligible,
+   because its quality is then not an estimate of the mode.
 2. The eligible mode with the highest quality wins.
 3. A mode whose quality interval overlaps that of the best mode is equal to
    it in quality. Equal modes are ordered by p95 latency. Modes whose p95
@@ -18,14 +20,19 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from pydantic import ValidationError
+
 from modebench.config import Mode, ModesFile, RoleSlo
 from modebench.decision.toml_writer import dumps
+from modebench.errors import StorageError
 from modebench.stats.aggregate import ModeSummary, RunSummary
 from modebench.stats.percentiles import Estimate
 
 STATUS_OK = "ok"
 STATUS_NONE_WITHIN_SLO = "no_mode_within_slo"
 RECOMMENDED_NAME = "recommended_modes.toml"
+# The smallest share of the answers that need a verdict and have one.
+MIN_JUDGE_COVERAGE = 0.9
 
 
 @dataclass(frozen=True, slots=True)
@@ -46,6 +53,13 @@ def slo_problem(summary: ModeSummary, slo: RoleSlo) -> str | None:
     """Return why a mode does not meet an objective, or None if it meets it."""
     if summary.quality is None or summary.question_accuracy is None:
         return "no quality data (the run had no judge)"
+    graded = summary.judged + summary.unjudged
+    if graded and summary.judged / graded < MIN_JUDGE_COVERAGE:
+        share = summary.judged / graded
+        return (
+            f"the judge graded only {share:.0%} of the answers, "
+            f"and a decision needs {MIN_JUDGE_COVERAGE:.0%}"
+        )
     p95 = summary.ttfat_p95_ms.value
     if p95 > slo.ttfat_p95_ms_max:
         return f"TTFAT p95 {p95:.0f} ms is above {slo.ttfat_p95_ms_max:.0f} ms"
@@ -125,7 +139,10 @@ def decide(
 
 def modes_of_run(modes_json: str) -> dict[str, Mode]:
     """Return the modes that a run recorded, as they were when it ran."""
-    parsed = [Mode.model_validate(item) for item in json.loads(modes_json)]
+    try:
+        parsed = [Mode.model_validate(item) for item in json.loads(modes_json)]
+    except (json.JSONDecodeError, ValidationError) as exc:
+        raise StorageError(f"the run does not hold the modes of an Analyze run: {exc}") from exc
     return {mode.id: mode for mode in parsed}
 
 

@@ -3,15 +3,24 @@
 The rule for failures is here. A request that failed, or that gave no
 visible answer, has no latency of its own. It gets the timeout as its
 latency, so that it moves the p95 up and never improves it by being absent.
+
+The rule for answers with no grade is here too. Some answers have a quality
+with no judge: a failure, an answer to noise, a false refusal. The others need
+a verdict. If no answer of a mode has a verdict (a run with no judge, or a run
+that stopped before the judge), the known values are not a sample of the mode:
+they are its failures and its noise cases. The mode then has no quality
+estimate. `judged` and `unjudged` say how many of the answers that need a
+verdict have one.
 """
 
 from collections import Counter
 from collections.abc import Sequence
 from pathlib import Path
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from modebench.config import StatsConfig
+from modebench.errors import StorageError
 from modebench.hashing import stable_seed
 from modebench.stats.percentiles import Estimate, bootstrap_mean, bootstrap_percentile, percentile
 from modebench.storage.db import RunStore
@@ -43,6 +52,8 @@ class ModeSummary(BaseModel):
     empty_rate: float = 0.0
     preamble_rate: float | None = None
     judge_failures: int = 0
+    judged: int = 0
+    unjudged: int = 0
     cost_mean_usd: float | None = None
     cost_total_usd: float = 0.0
     tok_per_s_p50: float | None = None
@@ -159,11 +170,17 @@ def summarize_mode(
     false_acceptance: list[float] = []
     preamble: list[float] = []
     judge_failures = 0
+    judged = 0
+    unjudged = 0
     for item in main:
         row = scores.get(item.id, {})
         value = _score(row, "derived.quality")
         if value is not None:
             quality.append(value)
+        else:
+            unjudged += 1
+        if "judge.utility" in row:
+            judged += 1
         correct = _score(row, "derived.question_correct")
         if correct is not None:
             accuracy.append(correct)
@@ -210,6 +227,10 @@ def summarize_mode(
     for record in warm_records:
         if record.cached_tokens is not None and record.prompt_tokens:
             cached_shares.append(record.cached_tokens / record.prompt_tokens)
+    if judged == 0 and unjudged > 0:
+        # Only the failures and the noise cases have a value: that is no sample of the mode.
+        quality = []
+        accuracy = []
     return ModeSummary(
         mode_id=mode_id,
         requests=len(records),
@@ -229,6 +250,8 @@ def summarize_mode(
         empty_rate=empties / len(records) if records else 0.0,
         preamble_rate=_rate(preamble),
         judge_failures=judge_failures,
+        judged=judged,
+        unjudged=unjudged,
         cost_mean_usd=_mean(costs),
         cost_total_usd=sum(costs),
         tok_per_s_p50=percentile(speeds, 50) if speeds else None,
@@ -282,4 +305,9 @@ def write_summary(summary: RunSummary, path: Path) -> Path:
 
 def load_summary(path: Path) -> RunSummary:
     """Read a summary that `write_summary` wrote. A baseline is such a file."""
-    return RunSummary.model_validate_json(path.read_text(encoding="utf-8"))
+    try:
+        return RunSummary.model_validate_json(path.read_text(encoding="utf-8"))
+    except FileNotFoundError as exc:
+        raise StorageError(f"summary file not found: {path}") from exc
+    except ValidationError as exc:
+        raise StorageError(f"{path} is not a valid summary file:\n{exc}") from exc

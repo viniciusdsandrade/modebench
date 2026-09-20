@@ -48,6 +48,13 @@ class CostEstimate:
         """Return the number of requests, the judge included."""
         return sum(item.requests for item in self.modes)
 
+    def per_request_usd(self, mode_id: str) -> float:
+        """Return the estimate of one request of a mode, or zero if there is no price."""
+        for item in self.modes:
+            if item.mode_id == mode_id and item.cost_usd is not None and item.requests:
+                return item.cost_usd / item.requests
+        return 0.0
+
 
 def _tokens(chars: int, chars_per_token: float) -> int:
     return math.ceil(chars / chars_per_token)

@@ -42,13 +42,20 @@ from modebench.report.markdown import REPORT_NAME, mode_rows, render_report
 from modebench.report.plots import plot_latency, plot_pareto
 from modebench.runner.execute import (
     STATUS_COMPLETED,
+    STATUS_COST_STOP,
     RunSettings,
     execute_run,
     prepare_run,
     utc_now,
 )
 from modebench.runner.preflight import run_preflight
-from modebench.stats.aggregate import SUMMARY_NAME, load_summary, summarize_run, write_summary
+from modebench.stats.aggregate import (
+    SUMMARY_NAME,
+    RunSummary,
+    load_summary,
+    summarize_run,
+    write_summary,
+)
 from modebench.storage.db import DB_NAME, RunStore
 from modebench.storage.records import RequestRecord
 from modebench.stt.config import load_stt_config
@@ -94,6 +101,30 @@ def _store(root: Path, runs_dir: Path) -> RunStore:
     return RunStore(resolve_path(root, runs_dir) / DB_NAME)
 
 
+def _require_usable(summary: RunSummary, *, allow_dry_run: bool = False) -> None:
+    """Stop a command that must read a real and complete run of the Analyze suites.
+
+    A decision, a baseline and a regression gate are facts that other people
+    and other programs use. Fake numbers, or the numbers of a run that stopped
+    early, must not become such a fact without a clear statement.
+    """
+    if summary.suite != ANALYZE_SUITE:
+        raise ConfigError(
+            f"run {summary.run_id} is of the suite {summary.suite}, "
+            "and this command reads a run of the Analyze suites"
+        )
+    if summary.status != STATUS_COMPLETED:
+        raise ConfigError(
+            f"run {summary.run_id} is not complete (status {summary.status}). "
+            "Its numbers come from a part of the plan, so they are not used"
+        )
+    if summary.dry_run and not allow_dry_run:
+        raise ConfigError(
+            f"run {summary.run_id} is a dry run. Its numbers are fake, so they are not used. "
+            "Use --allow-dry-run only to test the pipeline"
+        )
+
+
 def _progress(done: int, total: int, record: RequestRecord) -> None:
     if done % PROGRESS_EVERY == 0 or done == total or not record.ok:
         state = "ok" if record.ok else f"FAILED ({record.error_kind})"
@@ -119,9 +150,12 @@ def _run_stt(
     store = _store(root, config.runs_dir)
     try:
         run_id = run_stt_suite(settings, store, env)
+        status = store.load_run(run_id).status
     finally:
         store.close()
-    typer.echo(f"run {run_id} is complete. Make the report with: modebench report --run {run_id}")
+    typer.echo(f"run {run_id}: {status}. Make the report with: modebench report --run {run_id}")
+    if status == STATUS_COST_STOP:
+        raise typer.Exit(EXIT_COST_STOP)
 
 
 @app.command()
@@ -157,7 +191,9 @@ def run(
             raise ConfigError(f"unknown suite {suite}. Use analyze or stt")
         bench, modes_file, bench_path, modes_path = _load(root, config)
         env = load_env(root)
-        chosen = modes_file.select(modes.split(",") if modes else None)
+        named = [name.strip() for name in modes.split(",") if name.strip()] if modes else None
+        # A name given two times must not send each of its requests two times.
+        chosen = modes_file.select(list(dict.fromkeys(named)) if named else None)
         keys = [env.get(item.api_key_env, "") for item in modes_file.providers.values()]
         _setup_logging([key for key in keys if key])
         settings = RunSettings(
@@ -210,9 +246,13 @@ def run(
 def decide_command(
     run_id: RunOption = "latest",
     config: ConfigOption = Path("configs/bench.toml"),
-    out: Annotated[Path, typer.Option(help="Where the recommendations go.")] = Path(
-        RECOMMENDED_NAME
-    ),
+    out: Annotated[
+        Path | None,
+        typer.Option(
+            help="Where the recommendations go. The default is recommended_modes.toml at the "
+            "root. A dry run with no --out writes only in its run directory."
+        ),
+    ] = None,
     allow_dry_run: Annotated[
         bool, typer.Option("--allow-dry-run", help="Decide from fake numbers, for a test.")
     ] = False,
@@ -228,19 +268,19 @@ def decide_command(
             summary = summarize_run(store, resolved, bench.stats)
         finally:
             store.close()
-        if summary.dry_run and not allow_dry_run:
-            raise ConfigError(
-                f"run {resolved} is a dry run. Its numbers are fake, so no decision is made. "
-                "Use --allow-dry-run only to test the pipeline"
-            )
+        _require_usable(summary, allow_dry_run=allow_dry_run)
         run_modes = modes_of_run(record.modes_json)
         decisions = decide(bench.roles, summary, run_modes)
         document = recommended_document(
             decisions, summary, run_modes, modes_file, utc_now().isoformat()
         )
         run_dir = resolve_path(root, bench.paths.runs_dir) / resolved
-        write_recommended(document, run_dir / RECOMMENDED_NAME)
-        target = write_recommended(document, resolve_path(root, out))
+        target = write_recommended(document, run_dir / RECOMMENDED_NAME)
+        if out is not None:
+            target = write_recommended(document, resolve_path(root, out))
+        elif not summary.dry_run:
+            # The application reads this file, so fake numbers never go there by default.
+            target = write_recommended(document, resolve_path(root, Path(RECOMMENDED_NAME)))
         for decision in decisions:
             winner = decision.winner if decision.status == STATUS_OK else "no mode"
             typer.echo(f"{decision.role}: {winner} ({decision.reason})")
@@ -292,7 +332,9 @@ def report(
             images["latency"] = "latency.png"
         baseline_summary = None
         comparison = None
-        if baseline is not None and resolve_path(root, baseline).is_file():
+        if baseline is not None:
+            if not resolve_path(root, baseline).is_file():
+                raise ConfigError(f"baseline not found: {resolve_path(root, baseline)}")
             baseline_summary = load_summary(resolve_path(root, baseline))
             comparison = compare_summaries(
                 summary, baseline_summary, bench.regression.p95_increase_ratio
@@ -323,6 +365,9 @@ def compare(
         "baselines/baseline.json"
     ),
     config: ConfigOption = Path("configs/bench.toml"),
+    allow_dry_run: Annotated[
+        bool, typer.Option("--allow-dry-run", help="Compare fake numbers, for a test.")
+    ] = False,
     root: RootOption = Path("."),
 ) -> None:
     """Compare a run with the baseline. The exit code is 1 if there is a regression."""
@@ -339,9 +384,12 @@ def compare(
             summary = summarize_run(store, resolved, bench.stats)
         finally:
             store.close()
+        _require_usable(summary, allow_dry_run=allow_dry_run)
         result = compare_summaries(
             summary, load_summary(baseline_path), bench.regression.p95_increase_ratio
         )
+        for warning in result.warnings:
+            typer.secho(f"warning: {warning}", fg=typer.colors.YELLOW, err=True)
         for item in result.regressions:
             typer.echo(
                 f"REGRESSION {item.mode_id} {item.metric}: {item.baseline:.3f} before, "
@@ -372,8 +420,7 @@ def baseline_command(
             summary = summarize_run(store, resolved, bench.stats)
         finally:
             store.close()
-        if summary.dry_run:
-            raise ConfigError(f"run {resolved} is a dry run, and a baseline must be real")
+        _require_usable(summary)
         run_summary = resolve_path(root, bench.paths.runs_dir) / resolved / SUMMARY_NAME
         write_summary(summary, run_summary)
         target = resolve_path(root, out)
@@ -431,8 +478,8 @@ def import_sessions(
             meeting_id=meeting_id,
             limit=limit,
         )
-        cases = import_cases(db, options)
-        target = write_private_dataset(cases, resolve_path(root, out), force=force)
+        cases = import_cases(resolve_path(root, db), options)
+        target = write_private_dataset(cases, resolve_path(root, out), force=force, root=root)
         typer.echo(f"wrote {len(cases)} cases to {target}. Add it to paths.datasets to use it.")
     except ModebenchError as error:
         raise _fail(error) from error
