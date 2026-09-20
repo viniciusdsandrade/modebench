@@ -1,0 +1,21 @@
+# Example of a manifest. Copy it to data/private/stt/manifest.yaml.
+# A path of a WAV file starts at the directory of the manifest.
+version: 1
+visibility: private
+audios:
+  - id: reuniao-exemplo-1
+    wav: reuniao-exemplo-1.wav
+    language: pt
+    utterances:
+      - start_ms: 800
+        end_ms: 3400
+        speaker: A
+        text: "bom dia, vamos começar a reunião de planejamento"
+      - start_ms: 4100
+        end_ms: 7900
+        speaker: B
+        text: "bom dia, qual é o prazo para a entrega do módulo de pagamentos?"
+      - start_ms: 8600
+        end_ms: 12300
+        speaker: A
+        text: "a entrega fica para o dia 16 de novembro"
