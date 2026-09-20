@@ -278,6 +278,19 @@ class RunStore:
             result.setdefault(int(row["request_id"]), {})[f"{score.scorer}.{score.name}"] = score
         return result
 
+    def load_stt_final_latencies(self, run_id: str) -> dict[str, list[float]]:
+        """Return the latency of each settled utterance of a run, for each provider."""
+        rows = self._connection.execute(
+            "SELECT s.provider, f.latency_ms FROM stt_finals f "
+            "JOIN stt_sessions s ON s.id = f.session_id "
+            "WHERE s.run_id = ? AND f.latency_ms IS NOT NULL ORDER BY f.id",
+            (run_id,),
+        ).fetchall()
+        result: dict[str, list[float]] = {}
+        for row in rows:
+            result.setdefault(str(row["provider"]), []).append(float(row["latency_ms"]))
+        return result
+
     def load_stt_sessions(self, run_id: str) -> list[SttSessionRecord]:
         """Return the replays of a run of the speech suite."""
         rows = self._connection.execute(
