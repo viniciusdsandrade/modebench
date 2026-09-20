@@ -47,7 +47,8 @@ select = ["E", "F", "W", "I", "UP", "B"]
 ignore = ["E501"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["modebench"]
+# `helpers` is the shared module of the tests.
+known-first-party = ["modebench", "helpers"]
 
 [tool.mypy]
 python_version = "3.12"
@@ -60,6 +61,7 @@ ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["tests"]
 addopts = "--cov --cov-report=term-missing"
 
 # The core is every module that decides a number or a verdict. The command
