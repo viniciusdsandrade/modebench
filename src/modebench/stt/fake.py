@@ -4,6 +4,10 @@ The fake server follows the position of the audio that it receives. It sends
 a partial a fixed time after an utterance starts and a final a fixed time
 after it ends, with the words of the reference. With the virtual clock of the
 tests, the latencies that the replay measures are then known in advance.
+
+A real provider counts its word times from the first byte of the stream, so
+the silence that goes out before the audio moves each time. The fake server
+does the same when it knows the length of that silence.
 """
 
 import asyncio
@@ -98,9 +102,11 @@ class FakeSttServer:
         partial_delay_ms: float = 400.0,
         final_delay_ms: float = 700.0,
         word_error_every: int = 0,
+        preroll_ms: float = 0.0,
     ) -> None:
         self._utterances = sorted(audio.utterances, key=lambda item: item.start_ms)
         self._rate = sample_rate
+        self._preroll_ms = preroll_ms
         self._partial_delay_ms = partial_delay_ms
         self._final_delay_ms = final_delay_ms
         self._word_error_every = word_error_every
@@ -118,16 +124,16 @@ class FakeSttServer:
             "type": kind,
             "utterance": index,
             "text": text,
-            "start_ms": utterance.start_ms,
-            "end_ms": utterance.end_ms,
+            "start_ms": utterance.start_ms + self._preroll_ms,
+            "end_ms": utterance.end_ms + self._preroll_ms,
             "speaker": utterance.speaker,
         }
         return json.dumps(payload, ensure_ascii=False)
 
     def _emit_due(self, flush: bool = False) -> None:
         for index, utterance in enumerate(self._utterances):
-            partial_at = utterance.start_ms + self._partial_delay_ms
-            final_at = utterance.end_ms + self._final_delay_ms
+            partial_at = self._preroll_ms + utterance.start_ms + self._partial_delay_ms
+            final_at = self._preroll_ms + utterance.end_ms + self._final_delay_ms
             if index not in self._partials and (flush or self._position_ms >= partial_at):
                 self._partials.add(index)
                 self._queue.put_nowait(self._message("partial", index, utterance))
@@ -157,7 +163,9 @@ class FakeSttServer:
         self._queue.put_nowait(None)
 
 
-def fake_connector(audio: AudioItem, sample_rate: int, settings: Mapping[str, Any]) -> Connector:
+def fake_connector(
+    audio: AudioItem, sample_rate: int, settings: Mapping[str, Any], *, preroll_ms: float = 0.0
+) -> Connector:
     """Return a connector that opens a fake server for one audio item."""
 
     def _value(key: str, default: float) -> float:
@@ -171,6 +179,7 @@ def fake_connector(audio: AudioItem, sample_rate: int, settings: Mapping[str, An
             partial_delay_ms=_value("partial_delay_ms", 400.0),
             final_delay_ms=_value("final_delay_ms", 700.0),
             word_error_every=int(_value("word_error_every", 0.0)),
+            preroll_ms=preroll_ms,
         )
 
     return connect

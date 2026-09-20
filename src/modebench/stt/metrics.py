@@ -34,7 +34,11 @@ class SessionMetrics:
 
 
 def session_cost(billing: SttBilling, audio_ms: float, session_ms: float) -> float:
-    """Return the cost of one session by the billing basis of the provider."""
+    """Return the cost of one session by the billing basis of the provider.
+
+    `audio_ms` is the audio that the provider received, silence included. A
+    session that failed to connect sent no audio, and then it costs nothing.
+    """
     billed_ms = session_ms if billing.basis == "session_seconds" else audio_ms
     return billed_ms / 3_600_000.0 * billing.total_usd_per_hour
 
@@ -126,6 +130,6 @@ def session_metrics(
         final_latency_p95_ms=percentile(latencies, 95) if latencies else None,
         rates=error_rates(audio.reference_text, hypothesis, normalization),
         speaker_accuracy=speaker_accuracy(finals, audio.utterances),
-        cost_usd=session_cost(billing, trace.audio_ms, trace.session_ms),
+        cost_usd=session_cost(billing, trace.sent_ms, trace.session_ms),
         hypothesis=hypothesis,
     )

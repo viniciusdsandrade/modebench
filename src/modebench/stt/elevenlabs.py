@@ -86,19 +86,19 @@ class ElevenLabsParser:
     """Reads ElevenLabs messages and numbers the utterances.
 
     A commit closes a segment, so the first transcript after a commit opens
-    the next utterance. A plain commit that comes when the segment is already
-    committed belongs to a new segment. A twin with timestamps belongs to a
-    new segment only if a twin was already seen for the open one.
+    the next utterance. A segment has at most one plain commit and one twin
+    with timestamps, in any order. A commit belongs to a new segment only if
+    a commit of the same type was already seen for the open one.
     """
 
     def __init__(self) -> None:
         self._utterance = 0
-        self._committed = False
+        self._committed_plain = False
         self._committed_timed = False
 
     def _open_utterance(self) -> int:
-        if self._committed:
-            self._committed = False
+        if self._committed_plain or self._committed_timed:
+            self._committed_plain = False
             self._committed_timed = False
             self._utterance += 1
         return self._utterance
@@ -129,11 +129,13 @@ class ElevenLabsParser:
             return [SttEvent(FINAL, words, self._open_utterance(), start, end, speaker)]
         if kind in _COMMIT_TYPES:
             timed = kind == "committed_transcript_with_timestamps"
-            closes_a_further_segment = self._committed_timed if timed else self._committed
+            closes_a_further_segment = self._committed_timed if timed else self._committed_plain
             if closes_a_further_segment:
                 self._open_utterance()
-            self._committed = True
-            self._committed_timed = self._committed_timed or timed
+            if timed:
+                self._committed_timed = True
+            else:
+                self._committed_plain = True
             start, end, speaker = _span(message)
             return [SttEvent(FINAL, words, self._utterance, start, end, speaker)]
         if isinstance(kind, str) and kind in ERROR_TYPES:

@@ -14,9 +14,19 @@ from datetime import datetime
 from pathlib import Path
 
 from modebench.config import resolve_path
+from modebench.dataset.loader import is_private_path
 from modebench.errors import ConfigError, CostCeilingExceeded, PreflightError, PrivacyViolation
 from modebench.hashing import git_dirty, git_sha, sha256_files, sha256_text
-from modebench.runner.execute import new_run_id, utc_now
+from modebench.runner.execute import (
+    STATUS_COMPLETED,
+    STATUS_COST_STOP,
+    STATUS_FAILED,
+    STATUS_INTERRUPTED,
+    STATUS_RUNNING,
+    new_run_id,
+    utc_now,
+)
+from modebench.runner.guard import check_running_cost
 from modebench.storage.db import RunStore
 from modebench.storage.jsonl import RAW_NAME, RawLog
 from modebench.storage.records import RunRecord, SttFinalRecord, SttSessionRecord
@@ -126,9 +136,19 @@ def estimate_stt_cost(
     return total
 
 
+def manifest_is_private(root: Path, manifest_path: Path, manifest: SttManifest) -> bool:
+    """Return True if the audio of the manifest must stay with the approved providers.
+
+    A manifest is private if it says so or if it is in the private directory.
+    One of the two is sufficient, as for the datasets of the Analyze suites, so
+    a manifest with a wrong header stays private.
+    """
+    return manifest.visibility == "private" or is_private_path(root, manifest_path)
+
+
 def _enforce_guards(
     settings: SttRunSettings,
-    manifest: SttManifest,
+    private: bool,
     providers: Mapping[str, SttProviderConfig],
     env: Mapping[str, str],
     estimate_usd: float,
@@ -136,8 +156,12 @@ def _enforce_guards(
 ) -> None:
     if settings.dry_run:
         return
-    if manifest.visibility == "private":
-        unsafe = [name for name, item in providers.items() if not item.private_data_ok]
+    if private:
+        unsafe = [
+            name
+            for name, item in providers.items()
+            if item.kind != "fake" and not item.private_data_ok
+        ]
         if unsafe:
             raise PrivacyViolation(
                 "The manifest is private, and these providers do not set "
@@ -206,6 +230,10 @@ def run_stt_suite(
     A session with the fake server runs on a virtual clock, so a dry run takes
     seconds. A session with a real provider runs on the real clock, at the
     speed of real time.
+
+    A real run stops when the money spent goes above the ceiling. A run that
+    an error or the operator stops keeps its sessions, and its status says
+    that it is not complete.
     """
     config = settings.config
     profile = config.profile(settings.profile_name)
@@ -221,7 +249,8 @@ def run_stt_suite(
     estimate = estimate_stt_cost(
         providers, audios, profile.repetitions, config.replay.tail_silence_ms
     )
-    _enforce_guards(settings, manifest, providers, env, estimate, ceiling)
+    private = manifest_is_private(settings.root, manifest_path, manifest)
+    _enforce_guards(settings, private, providers, env, estimate, ceiling)
     wav_paths = [manifest_path.parent / item.wav for item in items]
     hashed = [path for path in [manifest_path, *wav_paths] if path.is_file()]
     run_id = new_run_id(now())
@@ -231,7 +260,7 @@ def run_stt_suite(
             suite=SUITE,
             profile=settings.profile_name,
             started_at=now().isoformat(),
-            status="running",
+            status=STATUS_RUNNING,
             dry_run=settings.dry_run,
             git_sha=git_sha(settings.root),
             git_dirty=git_dirty(settings.root),
@@ -245,67 +274,81 @@ def run_stt_suite(
         )
     )
     names = list(providers)
+    sessions: list[tuple[int, AudioItem, PcmAudio, str]] = []
+    for repetition in range(1, profile.repetitions + 1):
+        for index, (item, audio) in enumerate(zip(items, audios, strict=True)):
+            offset = (index + repetition) % len(names)
+            for name in names[offset:] + names[:offset]:
+                sessions.append((repetition, item, audio, name))
     spent = 0.0
+    status = STATUS_FAILED
     runs_dir = resolve_path(settings.root, config.runs_dir)
-    with RawLog(runs_dir / run_id / RAW_NAME) as raw:
-        for repetition in range(1, profile.repetitions + 1):
-            for index, (item, audio) in enumerate(zip(items, audios, strict=True)):
-                offset = (index + repetition) % len(names)
-                for name in names[offset:] + names[:offset]:
-                    provider = providers[name]
-                    adapter = build_adapter(name, provider, dry_run=settings.dry_run)
-                    use_fake = settings.dry_run or provider.kind == "fake"
-                    connect = connector
-                    if connect is None:
-                        connect = _default_connector(item, audio, provider, use_fake)
-                    virtual = VirtualTime()
-                    session_clock = clock or (virtual.clock if use_fake else time.perf_counter_ns)
-                    session_sleep = sleep or (virtual.sleep if use_fake else asyncio.sleep)
-                    started_at = now().isoformat()
-                    trace = asyncio.run(
-                        replay_session(
-                            adapter,
-                            audio,
-                            connect,
-                            env.get(provider.api_key_env, ""),
-                            config.replay,
-                            preroll_ms=provider.preroll_silence_ms,
-                            clock=session_clock,
-                            sleep=session_sleep,
-                        )
+    try:
+        with RawLog(runs_dir / run_id / RAW_NAME) as raw:
+            status = STATUS_COMPLETED
+            for repetition, item, audio, name in sessions:
+                provider = providers[name]
+                adapter = build_adapter(name, provider, dry_run=settings.dry_run)
+                use_fake = settings.dry_run or provider.kind == "fake"
+                connect = connector
+                if connect is None:
+                    connect = _default_connector(item, audio, provider, use_fake)
+                virtual = VirtualTime()
+                session_clock = clock or (virtual.clock if use_fake else time.perf_counter_ns)
+                session_sleep = sleep or (virtual.sleep if use_fake else asyncio.sleep)
+                started_at = now().isoformat()
+                trace = asyncio.run(
+                    replay_session(
+                        adapter,
+                        audio,
+                        connect,
+                        env.get(provider.api_key_env, ""),
+                        config.replay,
+                        preroll_ms=provider.preroll_silence_ms,
+                        clock=session_clock,
+                        sleep=session_sleep,
                     )
-                    metrics = session_metrics(trace, item, provider.billing, config.normalization)
-                    record = _session_record(
-                        run_id, name, item, repetition, started_at, trace, metrics
+                )
+                metrics = session_metrics(trace, item, provider.billing, config.normalization)
+                record = _session_record(run_id, name, item, repetition, started_at, trace, metrics)
+                finals = [
+                    SttFinalRecord(
+                        utterance_index=final.index,
+                        text=final.text,
+                        speaker=final.speaker,
+                        received_ms=final.received_ms,
+                        audio_end_ms=final.audio_end_ms,
+                        latency_ms=final.latency_ms,
                     )
-                    finals = [
-                        SttFinalRecord(
-                            utterance_index=final.index,
-                            text=final.text,
-                            speaker=final.speaker,
-                            received_ms=final.received_ms,
-                            audio_end_ms=final.audio_end_ms,
-                            latency_ms=final.latency_ms,
-                        )
-                        for final in metrics.finals
-                    ]
-                    store.insert_stt_session(record, finals)
-                    raw.write(
-                        {
-                            "type": "stt_session",
-                            "run_id": run_id,
-                            "provider": name,
-                            "audio_id": item.id,
-                            "repetition": repetition,
-                            "error": trace.error,
-                            "events": [
-                                [event.at_ms, event.event.kind, event.event.utterance]
-                                for event in trace.events
-                            ],
-                        }
-                    )
-                    spent += metrics.cost_usd
-    store.finish_run(run_id, "completed", now().isoformat(), spent)
+                    for final in metrics.finals
+                ]
+                store.insert_stt_session(record, finals)
+                raw.write(
+                    {
+                        "type": "stt_session",
+                        "run_id": run_id,
+                        "provider": name,
+                        "audio_id": item.id,
+                        "repetition": repetition,
+                        "error": trace.error,
+                        "events": [
+                            [event.at_ms, event.event.kind, event.event.utterance]
+                            for event in trace.events
+                        ],
+                    }
+                )
+                spent += metrics.cost_usd
+                if not settings.dry_run and check_running_cost(spent, ceiling):
+                    status = STATUS_COST_STOP
+                    break
+    except KeyboardInterrupt:
+        status = STATUS_INTERRUPTED
+        raise
+    except BaseException:
+        status = STATUS_FAILED
+        raise
+    finally:
+        store.finish_run(run_id, status, now().isoformat(), spent)
     return run_id
 
 
@@ -313,7 +356,9 @@ def _default_connector(
     item: AudioItem, audio: PcmAudio, provider: SttProviderConfig, use_fake: bool
 ) -> Connector:
     if use_fake:
-        return fake_connector(item, audio.sample_rate, provider.query)
+        return fake_connector(
+            item, audio.sample_rate, provider.query, preroll_ms=provider.preroll_silence_ms
+        )
     from modebench.stt.connector import websockets_connector
 
     return websockets_connector

@@ -13,6 +13,10 @@ The repository has no audio. The suite measures your own recordings.
 5. In `configs/stt.toml`, set `private_data_ok = true` for each provider whose
    data policy permits this audio. A private manifest does not run without it.
 
+A manifest is private if it says `visibility: private` or if it is below
+`data/private/`. One of the two is sufficient, so a manifest in the private
+directory stays private when its header says `public`.
+
 ## Rules for the reference text
 
 - Write the words as they were said. Do not correct the grammar of the speaker.

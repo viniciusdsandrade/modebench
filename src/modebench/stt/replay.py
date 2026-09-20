@@ -17,11 +17,12 @@ from dataclasses import dataclass, field
 from typing import Protocol
 
 from modebench.redact import redact
-from modebench.stt.audio import PcmAudio, chunk_bytes, silence
+from modebench.stt.audio import BYTES_PER_SAMPLE, PcmAudio, chunk_bytes, silence
 from modebench.stt.base import CLOSED, ERROR, SttAdapter, SttEvent
 from modebench.stt.config import SttReplayConfig
 
 MAX_BURST_MS = 1000
+EARLY_END = "the provider ended the session before the audio ended"
 
 
 class ConnectionEnded(Exception):
@@ -81,36 +82,62 @@ class ReceivedEvent:
 
 @dataclass(slots=True)
 class SessionTrace:
-    """What one replay recorded."""
+    """What one replay recorded.
+
+    `audio_ms` is the length of the audio file. `sent_ms` is the audio that
+    went out, with the silence before and after it, and it is shorter than the
+    plan when the session ended early.
+    """
 
     provider: str
     audio_ms: float
     preroll_ms: float = 0.0
     connect_ms: float | None = None
     session_ms: float = 0.0
+    sent_ms: float = 0.0
     max_send_lag_ms: float = 0.0
     events: list[ReceivedEvent] = field(default_factory=list)
     error: str | None = None
 
 
+@dataclass(slots=True)
+class _Reception:
+    """What the receiver task shares with the sender."""
+
+    received: list[tuple[int, SttEvent]] = field(default_factory=list)
+    ended: asyncio.Event = field(default_factory=asyncio.Event)
+    close_reason: str | None = None
+
+
+def _duration_ms(pcm: bytes, sample_rate: int) -> float:
+    return len(pcm) / BYTES_PER_SAMPLE / sample_rate * 1000.0
+
+
 async def _receive(
-    connection: WsConnection,
-    adapter: SttAdapter,
-    clock: Clock,
-    received: list[tuple[int, SttEvent]],
-    ended: asyncio.Event,
+    connection: WsConnection, adapter: SttAdapter, clock: Clock, reception: _Reception
 ) -> None:
     parser = adapter.new_parser()
     try:
         while True:
             raw = await connection.recv()
             now_ns = clock()
-            for event in parser.parse(raw):
-                received.append((now_ns, event))
+            try:
+                events = parser.parse(raw)
+            except Exception as exc:
+                # A defect of one dialect is the error of one session, not the end of the suite.
+                detail = f"the parser failed: {type(exc).__name__}: {exc}"
+                events = [SttEvent(kind=ERROR, message=detail)]
+            for event in events:
+                reception.received.append((now_ns, event))
                 if event.kind in (CLOSED, ERROR):
-                    ended.set()
-    except ConnectionEnded:
-        ended.set()
+                    reception.ended.set()
+    except ConnectionEnded as exc:
+        reception.close_reason = str(exc) or None
+    except Exception as exc:
+        detail = f"the receiver failed: {type(exc).__name__}: {exc}"
+        reception.received.append((clock(), SttEvent(kind=ERROR, message=detail)))
+    finally:
+        reception.ended.set()
 
 
 async def replay_session(
@@ -124,7 +151,13 @@ async def replay_session(
     clock: Clock = time.perf_counter_ns,
     sleep: Sleep = asyncio.sleep,
 ) -> SessionTrace:
-    """Send `audio` at the speed of real time and return the trace of the session."""
+    """Send `audio` at the speed of real time and return the trace of the session.
+
+    A session that ends before each chunk went out is a failure, also when
+    the receiver sees the end first. Without that rule, a provider that drops
+    the connection in the middle of the audio gives a short transcript that
+    looks like a bad recognition and not like an error.
+    """
     trace = SessionTrace(
         provider=adapter.name, audio_ms=audio.duration_ms, preroll_ms=float(preroll_ms)
     )
@@ -139,20 +172,22 @@ async def replay_session(
         return trace
     open_ns = clock()
     trace.connect_ms = (open_ns - connect_start_ns) / 1e6
-    received: list[tuple[int, SttEvent]] = []
-    ended = asyncio.Event()
-    receiver = asyncio.create_task(_receive(connection, adapter, clock, received, ended))
+    reception = _Reception()
+    receiver = asyncio.create_task(_receive(connection, adapter, clock, reception))
     zero_ns = open_ns
+    audio_complete = False
+    send_failure: str | None = None
     try:
         if preroll_ms > 0:
             for burst in chunk_bytes(silence(rate, preroll_ms), rate, MAX_BURST_MS):
                 await connection.send(adapter.audio_message(burst, rate))
+                trace.sent_ms += _duration_ms(burst, rate)
         chunks = chunk_bytes(audio.samples, rate, options.chunk_ms)
         chunks += chunk_bytes(silence(rate, options.tail_silence_ms), rate, options.chunk_ms)
         step_ns = options.chunk_ms * 1_000_000
         zero_ns = clock()
         for index, chunk in enumerate(chunks):
-            if ended.is_set():
+            if reception.ended.is_set():
                 break
             target_ns = zero_ns + index * step_ns
             wait_ns = target_ns - clock()
@@ -161,19 +196,24 @@ async def replay_session(
             lag_ms = (clock() - target_ns) / 1e6
             trace.max_send_lag_ms = max(trace.max_send_lag_ms, lag_ms)
             await connection.send(adapter.audio_message(chunk, rate))
-        closing = adapter.closing_messages()
-        for message in closing:
-            await connection.send(message)
-        if closing:
-            try:
-                await asyncio.wait_for(ended.wait(), options.drain_timeout_s)
-            except TimeoutError:
-                trace.error = "the provider did not confirm the end of the session"
-        elif options.close_grace_s > 0:
-            await sleep(options.close_grace_s)
-    except ConnectionEnded:
-        if not ended.is_set():
-            trace.error = "the provider closed the connection before the audio ended"
+            trace.sent_ms += _duration_ms(chunk, rate)
+        else:
+            audio_complete = True
+        if audio_complete:
+            closing = adapter.closing_messages()
+            for message in closing:
+                await connection.send(message)
+            if closing:
+                try:
+                    await asyncio.wait_for(reception.ended.wait(), options.drain_timeout_s)
+                except TimeoutError:
+                    trace.error = "the provider did not confirm the end of the session"
+            elif options.close_grace_s > 0:
+                await sleep(options.close_grace_s)
+    except ConnectionEnded as exc:
+        send_failure = str(exc) or None
+        if audio_complete and not reception.ended.is_set():
+            trace.error = "the provider closed the connection before the session ended"
     finally:
         await connection.close()
         try:
@@ -182,9 +222,14 @@ async def replay_session(
             receiver.cancel()
     trace.session_ms = (clock() - open_ns) / 1e6
     trace.events = [
-        ReceivedEvent(at_ms=(at_ns - zero_ns) / 1e6, event=event) for at_ns, event in received
+        ReceivedEvent(at_ms=(at_ns - zero_ns) / 1e6, event=event)
+        for at_ns, event in reception.received
     ]
     errors = [item.event.message for item in trace.events if item.event.kind == ERROR]
     if errors and trace.error is None:
         trace.error = redact(errors[0], [api_key])
+    if not audio_complete and trace.error is None:
+        reason = reception.close_reason or send_failure
+        detail = f"{EARLY_END}: {reason}" if reason else EARLY_END
+        trace.error = redact(detail, [api_key])
     return trace

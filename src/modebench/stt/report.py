@@ -4,6 +4,7 @@ from collections.abc import Mapping, Sequence
 
 from modebench.config import StatsConfig
 from modebench.hashing import stable_seed
+from modebench.report.markdown import COMPLETED, cell
 from modebench.stats.percentiles import Estimate, bootstrap_percentile, percentile
 from modebench.storage.records import RunRecord, SttSessionRecord
 
@@ -48,6 +49,8 @@ def render_stt_report(
     lines = [f"# modebench speech to text report: {run.run_id}", ""]
     if run.dry_run:
         lines += ["> **Dry run.** The fake server made these numbers.", ""]
+    if run.status != COMPLETED:
+        lines += [f"> **Run not complete** (status `{run.status}`). Some sessions are absent.", ""]
     lines += [
         f"Profile `{run.profile}`, commit `{run.git_sha}`, config `{run.config_hash[:16]}`, "
         f"dataset `{run.dataset_hash[:16]}`.",
@@ -113,6 +116,6 @@ def render_stt_report(
         for session in failed:
             lines.append(
                 f"- `{session.provider}`, `{session.audio_id}`, repetition {session.repetition}: "
-                f"{session.error_message}"
+                f"{cell(session.error_message or 'no message')}"
             )
     return "\n".join(lines) + "\n"

@@ -39,7 +39,13 @@ _HUNDREDS = {
     9: "novecentos",
 }
 _SCALES = ((1_000_000_000, "bilhão", "bilhões"), (1_000_000, "milhão", "milhões"))
-_ORDINALS_M = ("primeiro segundo terceiro quarto quinto sexto sétimo oitavo nono décimo").split()
+_ORDINAL_UNITS = "primeiro segundo terceiro quarto quinto sexto sétimo oitavo nono".split()
+_ORDINAL_TENS = (
+    "décimo vigésimo trigésimo quadragésimo quinquagésimo sexagésimo septuagésimo "
+    "octogésimo nonagésimo"
+).split()
+# The degree sign is an ordinal mark only for a small number: "30°" is a temperature.
+_DEGREE_ORDINAL_MAX = 10
 _CONTRACTIONS = {
     "pra": "para",
     "pras": "para as",
@@ -62,6 +68,8 @@ _HESITATIONS = frozenset(
     | {"uhm", "ãh", "hã", "éh", "ahm"}
 )
 
+# "R$ 100 mil" is said "cem mil reais": the scale word comes before the currency.
+_CURRENCY_SCALED = re.compile(r"r\$\s*(\d+)(?:,(\d+))?\s*(mil|milhão|milhões|bilhão|bilhões)\b")
 _CURRENCY = re.compile(r"r\$\s*(\d{1,3}(?:\.\d{3})+|\d+)(?:,(\d{2}))?")
 _ORDINAL = re.compile(r"(\d+)\s*([ºª°])")
 _NUMBER = re.compile(r"\d{1,3}(?:\.\d{3})+(?:,\d+)?|\d+(?:,\d+)?")
@@ -123,6 +131,17 @@ def _number_words(match: re.Match[str]) -> str:
     return f" {words} "
 
 
+def _scaled_currency_words(match: re.Match[str]) -> str:
+    words = number_to_words_pt(int(match.group(1)))
+    fraction = match.group(2)
+    if fraction:
+        words += " vírgula " + _digits(fraction)
+    scale = match.group(3)
+    # "cem mil reais", and "dois milhões de reais".
+    joiner = " " if scale == "mil" else " de "
+    return f" {words} {scale}{joiner}reais "
+
+
 def _currency_words(match: re.Match[str]) -> str:
     words = number_to_words_pt(int(match.group(1).replace(".", ""))) + " reais"
     cents = match.group(2)
@@ -131,14 +150,28 @@ def _currency_words(match: re.Match[str]) -> str:
     return f" {words} "
 
 
+def ordinal_to_words_pt(value: int, *, feminine: bool = False) -> str | None:
+    """Return an ordinal from 1 to 99 as words: 23 is "vigésimo terceiro". Else None."""
+    if not 1 <= value <= 99:
+        return None
+    tens, units = divmod(value, 10)
+    parts: list[str] = []
+    if tens:
+        parts.append(_ORDINAL_TENS[tens - 1])
+    if units:
+        parts.append(_ORDINAL_UNITS[units - 1])
+    if feminine:
+        parts = [part[:-1] + "a" for part in parts]
+    return " ".join(parts)
+
+
 def _ordinal_words(match: re.Match[str]) -> str:
     value = int(match.group(1))
-    if 1 <= value <= len(_ORDINALS_M):
-        word = _ORDINALS_M[value - 1]
-        if match.group(2) == "ª":
-            word = word[:-1] + "a"
-        return f" {word} "
-    return f" {number_to_words_pt(value)} "
+    mark = match.group(2)
+    words = ordinal_to_words_pt(value, feminine=mark == "ª")
+    if words is None or (mark == "°" and value > _DEGREE_ORDINAL_MAX):
+        words = number_to_words_pt(value)
+    return f" {words} "
 
 
 def normalize_pt(text: str, options: SttNormalization | None = None) -> str:
@@ -146,6 +179,7 @@ def normalize_pt(text: str, options: SttNormalization | None = None) -> str:
     chosen = options if options is not None else SttNormalization()
     value = unicodedata.normalize("NFC", text).lower()
     if chosen.expand_numbers:
+        value = _CURRENCY_SCALED.sub(_scaled_currency_words, value)
         value = _CURRENCY.sub(_currency_words, value)
         value = value.replace("%", " por cento ")
         value = _ORDINAL.sub(_ordinal_words, value)
