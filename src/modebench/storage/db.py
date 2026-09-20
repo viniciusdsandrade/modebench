@@ -154,11 +154,15 @@ class RunStore:
     """Reads and writes the database of the runs."""
 
     def __init__(self, db_path: Path) -> None:
-        db_path.parent.mkdir(parents=True, exist_ok=True)
-        self._connection = sqlite3.connect(db_path)
-        self._connection.row_factory = sqlite3.Row
-        self._connection.executescript(SCHEMA)
-        self._connection.commit()
+        try:
+            db_path.parent.mkdir(parents=True, exist_ok=True)
+            self._connection = sqlite3.connect(db_path)
+            self._connection.row_factory = sqlite3.Row
+            self._connection.execute("PRAGMA foreign_keys = ON")
+            self._connection.executescript(SCHEMA)
+            self._connection.commit()
+        except (OSError, sqlite3.Error) as exc:
+            raise StorageError(f"the database {db_path} cannot be opened: {exc}") from exc
 
     def close(self) -> None:
         """Close the database."""

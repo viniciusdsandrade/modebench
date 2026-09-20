@@ -6,6 +6,7 @@ from collections.abc import Iterable
 from pathlib import Path
 
 UNKNOWN_SHA = "unknown"
+_BLOCK_BYTES = 1 << 20
 
 
 def sha256_text(text: str) -> str:
@@ -23,7 +24,10 @@ def sha256_files(paths: Iterable[Path]) -> str:
     for path in sorted(paths, key=lambda item: item.as_posix()):
         digest.update(path.name.encode("utf-8"))
         digest.update(b"\0")
-        digest.update(path.read_bytes())
+        with path.open("rb") as handle:
+            # An audio file can be large, so it is read in blocks.
+            while block := handle.read(_BLOCK_BYTES):
+                digest.update(block)
         digest.update(b"\0")
     return digest.hexdigest()
 

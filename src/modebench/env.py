@@ -1,15 +1,20 @@
 """Keys come from the process environment or from the .env file, and from nowhere else."""
 
 import os
+import re
 from collections.abc import Mapping
 from pathlib import Path
+
+_INLINE_COMMENT = re.compile(r"\s+#")
 
 
 def parse_env_text(text: str) -> dict[str, str]:
     """Parse the text of a .env file.
 
     A line is `KEY=value`. An `export ` prefix, blank lines and `#` comments
-    are ignored. One pair of quotes around the value is removed.
+    are ignored. One pair of quotes around the value is removed. A value with
+    no quotes ends at a ` #`, which starts a comment, as in the usual dotenv
+    dialects. Without that rule, the comment would be a part of the key.
     """
     values: dict[str, str] = {}
     for raw_line in text.splitlines():
@@ -24,6 +29,13 @@ def parse_env_text(text: str) -> dict[str, str]:
         value = value.strip()
         if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
             value = value[1:-1]
+        elif value[:1] in ("'", '"') and value.find(value[0], 1) > 0:
+            # A value in quotes with a comment after it: the closing quote ends the value.
+            value = value[1 : value.find(value[0], 1)]
+        elif value.startswith("#"):
+            value = ""
+        else:
+            value = _INLINE_COMMENT.split(value, maxsplit=1)[0].rstrip()
         values[key] = value
     return values
 

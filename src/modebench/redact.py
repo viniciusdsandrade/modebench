@@ -6,13 +6,22 @@ from collections.abc import Iterable
 
 REDACTED = "[REDACTED]"
 
-# A credential header in any text: the value is replaced to the end of the token.
+# A credential in any text, as a header, as a JSON field or as an assignment.
+# The value is replaced to the end of the token. An authentication scheme
+# (Bearer, Basic, Token and so on) is one more word before the credential, so
+# one optional word goes with it. To redact one word too many is safe. To
+# redact one word too few leaves the credential in the text.
+_CREDENTIAL_NAMES = (
+    "authorization|proxy-authorization|xi-api-key|x-api-key|x-goog-api-key|"
+    "api-key|api_key|apikey|access_token|refresh_token|client_secret|secret|password"
+)
 _HEADER_PATTERN = re.compile(
-    r"(?i)\b(authorization|xi-api-key|x-api-key|api-key|x-goog-api-key)\b"
-    r"(['\"]?\s*[:=]\s*['\"]?)(?:bearer\s+)?[^\s,;'\"}]+"
+    rf"(?i)\b({_CREDENTIAL_NAMES})\b"
+    r"(['\"]?\s*[:=]\s*['\"]?)(?:[a-z][a-z0-9_-]*\s+)?[^\s,;'\"}]+"
 )
 # A key or a token in a query string.
 _QUERY_PATTERN = re.compile(r"(?i)([?&](?:key|token|api_key|apikey|access_token)=)[^&\s]+")
+_FORMATTER = logging.Formatter()
 
 
 def redact(text: str, secrets: Iterable[str] = ()) -> str:
@@ -26,7 +35,12 @@ def redact(text: str, secrets: Iterable[str] = ()) -> str:
 
 
 class RedactingFilter(logging.Filter):
-    """Logging filter that redacts each record before a handler formats it."""
+    """Logging filter that redacts each record before a handler formats it.
+
+    The message is not the only text of a record. A traceback can hold a URL
+    or a header of the failed request, so the text of the exception and of the
+    stack is redacted too.
+    """
 
     def __init__(self, secrets: Iterable[str] = ()) -> None:
         super().__init__()
@@ -36,6 +50,12 @@ class RedactingFilter(logging.Filter):
         message = record.getMessage()
         record.msg = redact(message, self._secrets)
         record.args = None
+        if record.exc_info:
+            # A formatter uses `exc_text` when it is set, and does not format `exc_info` again.
+            text = record.exc_text or _FORMATTER.formatException(record.exc_info)
+            record.exc_text = redact(text, self._secrets)
+        if record.stack_info:
+            record.stack_info = redact(record.stack_info, self._secrets)
         return True
 
 
