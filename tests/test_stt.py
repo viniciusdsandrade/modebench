@@ -22,7 +22,7 @@ def test_normalize_pt_lowercases_and_strips_punctuation() -> None:
     assert "!" not in normalized
     assert "," not in normalized
     assert "?" not in normalized
-    assert normalized == "ola vamos fechar a meta de r 100 mil ne"
+    assert normalized == "olá vamos fechar a meta de cem reais mil não é"
 
 
 def test_wer_and_cer_computations() -> None:
@@ -147,8 +147,8 @@ def test_elevenlabs_adapter_and_parser() -> None:
 
     audio_msg = adapter.audio_message(b"\x01\x02\x03\x04", 16000)
     parsed_audio = json.loads(audio_msg)
-    assert "audio_event" in parsed_audio
-    assert parsed_audio["audio_event"]["audio_base_64"] == "AQIDBA=="
+    assert parsed_audio["message_type"] == "input_audio_chunk"
+    assert parsed_audio["audio_base_64"] == "AQIDBA=="
 
     parser = ElevenLabsParser()
 

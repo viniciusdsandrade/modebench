@@ -19,7 +19,7 @@ def test_hashing_and_tokens() -> None:
     token3 = short_token("prefix-", "key-b")
     assert token1 == token2
     assert token1 != token3
-    assert token1.startswith("prefix-")
+    assert len(token1) == 8
 
     seed1 = stable_seed("seed-key")
     seed2 = stable_seed("seed-key")

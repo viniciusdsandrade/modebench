@@ -108,7 +108,7 @@ def test_enforce_cost_ceiling_stops_excessive_or_unknown_spending() -> None:
         )
 
     # Over budget
-    with pytest.raises(CostCeilingExceeded, match="above the ceiling"):
+    with pytest.raises(CostCeilingExceeded, match="The estimate is 15.00 USD"):
         enforce_cost_ceiling(estimate_usd=15.0, ceiling_usd=10.0)
 
 

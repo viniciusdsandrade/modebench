@@ -91,54 +91,62 @@ def test_pareto_front_filters_dominated_and_sorts() -> None:
     assert keys == ["fast", "balanced", "accurate"]
 
 
+def make_req(*, ok: bool, ttfat_ms: float | None = None) -> RequestRecord:
+    return RequestRecord(
+        run_id="r1",
+        seq=1,
+        mode_id="m1",
+        suite="analyze",
+        item_id="it1",
+        case_id="c1",
+        variant_id="v1",
+        variant_kind="truncation",
+        truncation_pct=100,
+        asr_wer=0.0,
+        noise_kind=None,
+        duration_min=5,
+        repetition=1,
+        warmup=False,
+        scenario_id=None,
+        click_index=None,
+        cache_state="cold",
+        expect_refusal=False,
+        private=False,
+        started_at="2026-09-01T12:00:00Z",
+        ok=ok,
+        error_kind=None if ok else "error",
+        error_message=None,
+        http_status=200 if ok else 500,
+        first_chunk_ms=None,
+        ttft_ms=None,
+        first_reasoning_ms=None,
+        ttfat_ms=ttfat_ms,
+        total_ms=1000.0,
+        prompt_tokens=None,
+        completion_tokens=None,
+        reasoning_tokens=None,
+        answer_tokens=None,
+        cached_tokens=None,
+        tok_per_s=None,
+        served_by=None,
+        cost_usd=None,
+        cost_source="usage",
+        prompt_chars=100,
+        prompt_sha="sha",
+        answer="ans",
+    )
+
+
 def test_effective_latency_counts_failure_as_timeout() -> None:
     timeout_ms = 60000.0
-    rec_ok = RequestRecord(
-        seq=1,
-        run_id="r1",
-        suite="analyze",
-        mode_id="m1",
-        item_id="it1",
-        repetition=1,
-        warmup=False,
-        cache_state="cold",
-        ok=True,
-        total_ms=1500.0,
-        ttfat_ms=800.0,
-    )
+    rec_ok = make_req(ok=True, ttfat_ms=800.0)
     assert effective_latency(rec_ok, rec_ok.ttfat_ms, timeout_ms) == 800.0
 
-    rec_fail = RequestRecord(
-        seq=2,
-        run_id="r1",
-        suite="analyze",
-        mode_id="m1",
-        item_id="it2",
-        repetition=1,
-        warmup=False,
-        cache_state="cold",
-        ok=False,
-        error_kind="timeout",
-        total_ms=timeout_ms,
-        ttfat_ms=None,
-    )
+    rec_fail = make_req(ok=False, ttfat_ms=None)
     assert effective_latency(rec_fail, rec_fail.ttfat_ms, timeout_ms) == timeout_ms
 
     # Even if an erroneous request has a partial ttfat_ms, ok=False forces timeout
-    rec_fail_with_ttfat = RequestRecord(
-        seq=3,
-        run_id="r1",
-        suite="analyze",
-        mode_id="m1",
-        item_id="it3",
-        repetition=1,
-        warmup=False,
-        cache_state="cold",
-        ok=False,
-        error_kind="network_error",
-        total_ms=2000.0,
-        ttfat_ms=500.0,
-    )
+    rec_fail_with_ttfat = make_req(ok=False, ttfat_ms=500.0)
     assert (
         effective_latency(rec_fail_with_ttfat, rec_fail_with_ttfat.ttfat_ms, timeout_ms)
         == timeout_ms
