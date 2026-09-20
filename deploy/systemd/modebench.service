@@ -1,0 +1,13 @@
+[Unit]
+Description=Modebench weekly benchmark run
+After=network.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/modebench
+EnvironmentFile=-/opt/modebench/.env
+ExecStart=/opt/modebench/.venv/bin/python -m modebench run --profile quick --max-cost 2.0
+ExecStartPost=/opt/modebench/.venv/bin/python -m modebench decide --run latest
+ExecStartPost=/opt/modebench/.venv/bin/python -m modebench report --run latest
+StandardOutput=journal
+StandardError=journal

@@ -1,0 +1,10 @@
+[Unit]
+Description=Run modebench weekly benchmark on Monday mornings
+
+[Timer]
+OnCalendar=Mon *-*-* 03:00:00
+Persistent=true
+RandomizedDelaySec=600
+
+[Install]
+WantedBy=timers.target
