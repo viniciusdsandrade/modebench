@@ -2,7 +2,8 @@
 
 from pathlib import Path
 
-from modebench.hashing import git_info, sha256_text, short_token, stable_seed
+from helpers import REPO_ROOT
+from modebench.hashing import git_dirty, git_sha, sha256_text, short_token, stable_seed
 from modebench.redact import redact_text
 from modebench.storage.db import RunStore
 from modebench.storage.jsonl import JsonlWriter, read_jsonl
@@ -27,7 +28,8 @@ def test_hashing_and_tokens() -> None:
 
 
 def test_git_info_returns_hash() -> None:
-    sha, dirty = git_info()
+    sha = git_sha(REPO_ROOT)
+    dirty = git_dirty(REPO_ROOT)
     assert len(sha) == 7 or len(sha) == 40 or sha == "unknown"
     assert isinstance(dirty, bool)
 

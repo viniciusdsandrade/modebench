@@ -3,17 +3,16 @@
 import pytest
 
 from modebench.quality.deterministic import (
-    has_incomplete_remark,
     has_preamble,
     is_refusal,
-    score_deterministic,
+    score_answer,
 )
 from modebench.quality.judge import (
     JudgeItem,
     JudgeVerdict,
     parse_verdict,
     render_judge_message,
-    score_records,
+    verdict_records,
 )
 
 
@@ -41,33 +40,33 @@ def test_has_preamble_detects_conversational_fillers() -> None:
     assert not has_preamble("O projeto começa na segunda-feira às nove.")
 
 
-def test_has_incomplete_remark_detects_complaints_about_audio() -> None:
-    assert has_incomplete_remark("A transcrição parece incompleta neste ponto.")
-    assert has_incomplete_remark("A fala foi cortada antes de terminar.")
-    assert not has_incomplete_remark("O cliente pediu mais informações.")
+def test_has_preamble_detects_complaints_about_audio() -> None:
+    assert has_preamble("A transcrição parece incompleta neste ponto.")
+    assert has_preamble("A fala foi cortada antes de terminar.")
+    assert not has_preamble("O cliente pediu mais informações.")
 
 
 def test_score_deterministic_evaluates_noise_and_answer() -> None:
     # 1. Clean answer on normal case
-    clean_scores = score_deterministic("O valor total é de vinte mil reais.", expect_refusal=False)
+    clean_scores = score_answer("O valor total é de vinte mil reais.", expect_refusal=False)
     assert clean_scores.non_empty is True
     assert clean_scores.is_refusal is False
     assert clean_scores.refusal_only_on_noise is True  # Did not refuse when refusal wasn't expected
     assert clean_scores.no_preamble is True
 
     # 2. Refusal on noise case
-    noise_scores = score_deterministic("Não há pergunta identificável.", expect_refusal=True)
+    noise_scores = score_answer("Não há pergunta identificável.", expect_refusal=True)
     assert noise_scores.non_empty is True
     assert noise_scores.is_refusal is True
     assert noise_scores.refusal_only_on_noise is True  # Refused when noise was expected
 
     # 3. False refusal on normal case
-    false_refusal = score_deterministic("Não há pergunta.", expect_refusal=False)
+    false_refusal = score_answer("Não há pergunta.", expect_refusal=False)
     assert false_refusal.is_refusal is True
     assert false_refusal.refusal_only_on_noise is False
 
     # 4. Empty answer
-    empty_scores = score_deterministic("", expect_refusal=False)
+    empty_scores = score_answer("", expect_refusal=False)
     assert empty_scores.non_empty is False
 
 
@@ -123,7 +122,7 @@ def test_render_judge_message_keeps_evaluation_blind() -> None:
     assert "gemini" not in prompt.lower()
 
 
-def test_score_records_transforms_verdict_into_records() -> None:
+def test_verdict_records_transforms_verdict_into_records() -> None:
     verdict = JudgeVerdict(
         refused=False,
         inferred_question_correct=True,
@@ -133,17 +132,11 @@ def test_score_records_transforms_verdict_into_records() -> None:
         rationale="Boa resposta.",
     )
 
-    records = score_records(
-        run_id="run-1",
-        request_id="req-1",
-        verdict=verdict,
-        expect_refusal=False,
-        key_points=2,
-    )
-
+    records = verdict_records(verdict, key_points=2)
     record_map = {r.metric: r.value for r in records}
-    assert record_map["question_accuracy"] == 1.0
+    assert record_map["refused"] == 0.0
+    assert record_map["inferred_question_correct"] == 1.0
+    assert record_map["key_points_covered"] == 2.0
+    assert record_map["key_point_coverage"] == 1.0
     assert record_map["utility"] == 4.0
-    assert record_map["false_refusal"] == 0.0
-    assert record_map["false_acceptance"] == 0.0
-    assert record_map["quality"] > 0.0
+    assert record_map["hallucination"] == 0.0

@@ -5,13 +5,13 @@ import json
 import pytest
 
 from modebench.stt.assemblyai import AssemblyAiAdapter, AssemblyAiParser
-from modebench.stt.base import CLOSED, ERROR, FINAL, OPEN, PARTIAL
+from modebench.stt.base import CLOSED, ERROR, FINAL, OPEN, PARTIAL, SttEvent
 from modebench.stt.config import AudioItem, ReferenceUtterance, SttBilling
 from modebench.stt.elevenlabs import ElevenLabsAdapter, ElevenLabsParser
 from modebench.stt.fake import FakeSttAdapter
 from modebench.stt.metrics import collect_finals, session_cost
 from modebench.stt.normalize import normalize_pt
-from modebench.stt.replay import EventRecord, SessionTrace
+from modebench.stt.replay import ReceivedEvent, SessionTrace
 from modebench.stt.wer import error_rates
 
 
@@ -188,15 +188,12 @@ def test_collect_finals_calculates_latency_against_reference() -> None:
         ],
     )
 
-    from modebench.stt.base import SttEvent
-
     trace = SessionTrace(
-        adapter_name="fake",
-        audio_id="aud-1",
-        total_audio_ms=1000.0,
-        total_session_ms=1200.0,
+        provider="fake",
+        audio_ms=1000.0,
+        session_ms=1200.0,
         events=[
-            EventRecord(
+            ReceivedEvent(
                 at_ms=1100.0,
                 event=SttEvent(
                     kind=FINAL,

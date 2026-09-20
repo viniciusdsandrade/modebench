@@ -2,12 +2,21 @@
 
 import pytest
 
-from helpers import fake_mode, local_modes_file
-from modebench.config import MeetingConfig, Mode, Price, Profile, ProviderConfig, TranscriptConfig
+from helpers import fake_mode
+from modebench.config import (
+    CostConfig,
+    MeetingConfig,
+    Mode,
+    Price,
+    Profile,
+    ProviderConfig,
+    TranscriptConfig,
+)
 from modebench.dataset.schema import FillerFile, Line
+from modebench.dataset.transcript import Labels
 from modebench.dataset.variants import RenderLine, Variant
 from modebench.errors import CostCeilingExceeded, PrivacyViolation
-from modebench.runner.cost import estimate_plan_cost
+from modebench.runner.cost import estimate_cost
 from modebench.runner.guard import (
     check_running_cost,
     enforce_cost_ceiling,
@@ -213,8 +222,15 @@ def test_estimate_plan_cost_uses_prices() -> None:
     )
 
     plan = build_plan(items, [mode], profile)
-    modes_file = local_modes_file(mode)
-
-    estimate, unknown = estimate_plan_cost(plan, [mode], modes_file, "Pre-prompt system")
-    assert unknown == []
-    assert estimate > 0.0
+    labels = Labels(earlier="EARLIER", fresh="FRESH", answer="ANSWER")
+    cost_cfg = CostConfig()
+    estimate = estimate_cost(
+        plan=plan,
+        modes={mode.id: mode},
+        prices={mode.id: mode.price},
+        preprompt="Pre-prompt system",
+        labels=labels,
+        config=cost_cfg,
+    )
+    assert estimate.unknown_price_modes == []
+    assert estimate.total_usd > 0.0

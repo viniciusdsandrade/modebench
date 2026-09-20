@@ -6,7 +6,7 @@ from pathlib import Path
 from helpers import REPO_ROOT
 from modebench.config import Profile
 from modebench.dataset.importer import ImportOptions, import_cases
-from modebench.dataset.loader import load_cases_file, load_filler_file
+from modebench.dataset.loader import load_dataset, load_filler
 from modebench.dataset.meeting import build_scenarios
 from modebench.dataset.schema import Case, FillerFile, Line
 from modebench.dataset.transcript import EARLIER_HEADING, FRESH_HEADING, nonce_line, render_window
@@ -23,8 +23,8 @@ def test_seed_public_dataset_loads_valid_cases_and_filler() -> None:
     cases_path = REPO_ROOT / "data" / "public" / "analyze" / "cases.yaml"
     filler_path = REPO_ROOT / "data" / "public" / "analyze" / "filler.yaml"
 
-    cases_file = load_cases_file(cases_path)
-    filler_file = load_filler_file(filler_path)
+    cases_file = load_dataset(REPO_ROOT, cases_path).data
+    filler_file = load_filler(filler_path)
 
     assert len(cases_file.cases) == 20
     assert len(filler_file.segments) > 0
