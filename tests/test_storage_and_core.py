@@ -4,7 +4,7 @@ from pathlib import Path
 
 from helpers import REPO_ROOT
 from modebench.hashing import git_dirty, git_sha, sha256_text, short_token, stable_seed
-from modebench.redact import redact_text
+from modebench.redact import redact
 from modebench.storage.db import RunStore
 from modebench.storage.jsonl import JsonlWriter, read_jsonl
 from modebench.storage.records import RequestRecord, RunRecord, ScoreRecord
@@ -37,7 +37,7 @@ def test_git_info_returns_hash() -> None:
 def test_redaction_hides_secrets() -> None:
     secret = "sk-ant-api03-very-secret-key-123456"
     text = f"Connecting with Authorization: Bearer {secret} to endpoint."
-    redacted = redact_text(text, [secret])
+    redacted = redact(text, [secret])
     assert secret not in redacted
     assert "[REDACTED]" in redacted
 

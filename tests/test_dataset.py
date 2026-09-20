@@ -9,7 +9,13 @@ from modebench.dataset.importer import ImportOptions, import_cases
 from modebench.dataset.loader import load_dataset, load_filler
 from modebench.dataset.meeting import build_scenarios
 from modebench.dataset.schema import Case, FillerFile, Line
-from modebench.dataset.transcript import EARLIER_HEADING, FRESH_HEADING, nonce_line, render_window
+from modebench.dataset.transcript import (
+    EARLIER_HEADING,
+    NEW_HEADING,
+    Labels,
+    nonce_line,
+    render_window,
+)
 from modebench.dataset.variants import (
     RenderLine,
     Variant,
@@ -95,16 +101,17 @@ def test_generate_variants_creates_baseline_and_noise() -> None:
 
 
 def test_render_window_formats_transcript_with_nonces() -> None:
-    earlier = (RenderLine(speaker="system", text="Bom dia a todos."),)
-    fresh = (RenderLine(speaker="mic", text="Quando sai o relatório?", partial=False),)
     nonce = nonce_line("custom-nonce-key")
+    earlier = (nonce, RenderLine(speaker="system", text="Bom dia a todos."))
+    fresh = (RenderLine(speaker="mic", text="Quando sai o relatório?", partial=False),)
+    labels = Labels(mic="MIC", system="SYSTEM", partial_marker="*")
 
-    rendered = render_window(earlier, fresh, nonce=nonce)
+    rendered = render_window(earlier, fresh, labels)
     assert EARLIER_HEADING in rendered
     assert "Bom dia a todos." in rendered
-    assert FRESH_HEADING in rendered
+    assert NEW_HEADING in rendered
     assert "Quando sai o relatório?" in rendered
-    assert nonce in rendered
+    assert "Registro da sessão custom-nonce-key." in rendered
 
 
 def test_meeting_scenario_chains_clicks_with_growing_history() -> None:
