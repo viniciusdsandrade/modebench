@@ -59,14 +59,21 @@ files = ["src"]
 module = ["jiwer", "jiwer.*"]
 ignore_missing_imports = true
 
+# The speaker score adds these two for one command (`uv run --with`), so they
+# are not installed when the type check runs.
+[[tool.mypy.overrides]]
+module = ["pyannote", "pyannote.*", "meeteval", "meeteval.*"]
+ignore_missing_imports = true
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["tests"]
 addopts = "--cov --cov-report=term-missing"
 
 # The core is every module that decides a number or a verdict. The command
-# line, the charts and the two connectors that need a live network are the
-# thin shell around it, and they stay out of the threshold.
+# line, the charts, the two connectors that need a live network and the
+# adapter to the two libraries that only `uv run --with` adds are the thin
+# shell around it, and they stay out of the threshold.
 [tool.coverage.run]
 source = ["modebench"]
 omit = [
@@ -74,6 +81,7 @@ omit = [
     "*/modebench/cli.py",
     "*/modebench/report/plots.py",
     "*/modebench/stt/connector.py",
+    "*/modebench/speakers/external.py",
 ]
 
 [tool.coverage.report]

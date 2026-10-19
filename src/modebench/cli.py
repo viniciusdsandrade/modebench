@@ -1,4 +1,4 @@
-"""The command line: `modebench run`, `decide`, `report` and `compare`.
+"""The command line: `modebench run`, `decide`, `report`, `compare` and `speakers score`.
 
 Exit codes: 0 is success, 1 is a regression that `compare` found, 2 is an
 error that stopped the command, and 3 is a run that stopped at the cost
@@ -49,6 +49,9 @@ from modebench.runner.execute import (
     utc_now,
 )
 from modebench.runner.preflight import run_preflight
+from modebench.speakers.gold import load_gold
+from modebench.speakers.hypothesis import MODES, load_hypothesis
+from modebench.speakers.score import SCORE_SUFFIX, render_score, score_meeting, write_score
 from modebench.stats.aggregate import (
     SUMMARY_NAME,
     RunSummary,
@@ -67,6 +70,12 @@ app = typer.Typer(
     no_args_is_help=True,
     help="Select the provider, model and reasoning level of each role, with your own data.",
 )
+
+speakers_app = typer.Typer(
+    no_args_is_help=True,
+    help="Measure who spoke each line of stt-bridge against a gold set.",
+)
+app.add_typer(speakers_app, name="speakers")
 
 RootOption = Annotated[Path, typer.Option(help="The directory from which relative paths start.")]
 ConfigOption = Annotated[Path, typer.Option(help="The bench file.")]
@@ -481,5 +490,43 @@ def import_sessions(
         cases = import_cases(resolve_path(root, db), options)
         target = write_private_dataset(cases, resolve_path(root, out), force=force, root=root)
         typer.echo(f"wrote {len(cases)} cases to {target}. Add it to paths.datasets to use it.")
+    except ModebenchError as error:
+        raise _fail(error) from error
+
+
+@speakers_app.command("score")
+def speakers_score(
+    gold: Annotated[Path, typer.Option(help="The index of the gold set (YAML).")],
+    hypothesis: Annotated[
+        Path, typer.Option(help="The detail of the meeting, as stt-bridge writes it (JSON).")
+    ],
+    mode: Annotated[
+        str, typer.Option(help="`off`, `native` or `fusion`: the attribution of the hypothesis.")
+    ] = "native",
+    meeting: Annotated[
+        str | None,
+        typer.Option(help="The meeting of the gold set. The default is the hypothesis file name."),
+    ] = None,
+    out: Annotated[
+        Path | None,
+        typer.Option(help="Where the score goes. The default is below runs/speakers/<mode>/."),
+    ] = None,
+    root: RootOption = Path("."),
+) -> None:
+    """Score one meeting: DER, JER, WDER, cpWER, tcpWER, names and echo."""
+    try:
+        if mode not in MODES:
+            raise ConfigError(f"unknown mode {mode}. Use {', '.join(MODES)}")
+        hypothesis_path = resolve_path(root, hypothesis)
+        meeting_id = meeting or hypothesis_path.stem
+        gold_meeting = load_gold(resolve_path(root, gold), meeting_id)
+        found = load_hypothesis(hypothesis_path, mode=mode, offset_s=gold_meeting.offset_s)
+        score = score_meeting(gold_meeting, found, mode=mode)
+        default = Path("runs") / "speakers" / mode / f"{meeting_id}{SCORE_SUFFIX}"
+        target = resolve_path(root, out if out is not None else default)
+        write_score(score, target)
+        for line in render_score(score):
+            typer.echo(line)
+        typer.echo(f"wrote {target}")
     except ModebenchError as error:
         raise _fail(error) from error
