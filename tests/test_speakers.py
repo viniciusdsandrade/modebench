@@ -17,6 +17,7 @@ from modebench.speakers.gold import (
     GoldMeeting,
     Turn,
     WordSegment,
+    import_rttm,
     load_gold,
     parse_rttm,
     parse_seglst,
@@ -28,6 +29,7 @@ from modebench.speakers.hypothesis import (
     load_hypothesis,
     read_hypothesis,
 )
+from modebench.speakers.latency import load_speaker_latency, speaker_latency
 from modebench.speakers.mapping import best_mapping, mapped_total
 from modebench.speakers.metrics import (
     echo_rate,
@@ -781,3 +783,153 @@ def test_command_stops_with_a_message(tmp_path: Path, arguments: list[str], mess
 
     assert result.exit_code == EXIT_ERROR
     assert message in result.output
+
+
+# Latency, cost and the import of public sets.
+
+PROBES = """\
+some other line of the error stream
+latency-probe speaker-arrived source=system utterance=0 wall_unix_ms=1000
+latency-probe speaker-attributed source=system utterance=0 segment=1 speaker=A wall_unix_ms=1002
+latency-probe speaker-arrived source=system utterance=1 wall_unix_ms=5000
+latency-probe speaker-attributed source=system utterance=1 segment=2 speaker=B wall_unix_ms=5004
+latency-probe speaker-named speaker=A wall_unix_ms=9002
+latency-probe speaker-arrived source=system utterance=2 wall_unix_ms=12000
+latency-probe speaker-attributed source=system utterance=2 segment=3 speaker=A wall_unix_ms=12002
+latency-probe speaker-named speaker=A wall_unix_ms=20000
+latency-probe speaker-attributed source=system utterance=9 segment=4 speaker=C wall_unix_ms=bad
+latency-probe absorbed source=mic kind=Final ts_end_ms=900 wall_unix_ms=1
+"""
+
+
+def test_latency_reads_what_attribution_adds_and_how_long_a_name_takes() -> None:
+    measured = speaker_latency(PROBES.splitlines())
+
+    assert measured.lines == 3
+    assert measured.attribution_p50_ms == 2.0
+    assert measured.attribution_p95_ms == pytest.approx(3.8)
+    # A's first line waited 8 s for the name; its later line had it already.
+    assert measured.named_lines == 1
+    assert measured.name_delay_p50_ms == 8000.0
+
+
+def test_latency_without_probes_is_not_measured(tmp_path: Path) -> None:
+    empty = speaker_latency(["nothing here"])
+    assert empty.lines == 0
+    assert empty.attribution_p50_ms is None
+    assert empty.name_delay_p50_ms is None
+
+    with pytest.raises(DatasetError, match="not found"):
+        load_speaker_latency(tmp_path / "missing.log")
+    log = tmp_path / "record.err"
+    log.write_text(PROBES, encoding="utf-8")
+    assert load_speaker_latency(log).lines == 3
+
+
+def test_score_gives_the_cost_per_hour_and_the_latency() -> None:
+    hypothesis = read_hypothesis(detail(), mode="fusion")
+    assert hypothesis.duration_s == 2400.0
+
+    score = score_meeting(
+        gold(),
+        hypothesis,
+        mode="fusion",
+        external=False,
+        latency=speaker_latency(PROBES.splitlines()),
+        cost_usd=0.38,
+    )
+
+    assert score.cost_per_hour_usd == pytest.approx(0.57)
+    shown = "\n".join(render_score(score))
+    assert "attribution adds 2 ms p50" in shown
+    assert "0.5700 USD per hour" in shown
+
+    untimed = score_meeting(
+        gold(),
+        read_hypothesis(unattributed(), mode="off"),
+        mode="off",
+        external=False,
+        cost_usd=0.1,
+    )
+    assert untimed.cost_per_hour_usd is None
+    assert "cost per hour: the meeting has no end" in untimed.not_measured
+    assert "latency: no probe log was given" in untimed.not_measured
+
+
+def test_a_public_meeting_joins_the_gold_set_with_its_channel_prefix(tmp_path: Path) -> None:
+    source = tmp_path / "ami"
+    source.mkdir()
+    (source / "ES2004a.rttm").write_text(
+        "SPEAKER ES2004a 1 0.37 1.39 <NA> <NA> MEO015 <NA> <NA>\n"
+        "SPEAKER ES2004a 1 10.99 3.54 <NA> <NA> FEE013 <NA> <NA>\n",
+        encoding="utf-8",
+    )
+    (source / "ES2004a.uem").write_text("ES2004a 1 0.000 1049.354687\n", encoding="utf-8")
+    out = tmp_path / "gold"
+
+    index = import_rttm(source / "ES2004a.rttm", source / "ES2004a.uem", "ami-ES2004a", "sys-", out)
+    again = import_rttm(source / "ES2004a.rttm", None, "ami-other", "sys-", out)
+    assert again == index
+
+    meeting = load_gold(index, "ami-ES2004a")
+    assert [turn.speaker for turn in meeting.turns] == ["sys-MEO015", "sys-FEE013"]
+    assert meeting.scored == [(0.0, 1049.354687)]
+    assert load_gold(index, "ami-other").scored == [(0.37, pytest.approx(14.53))]
+
+    # Importing the same meeting again replaces its entry.
+    import_rttm(source / "ES2004a.rttm", None, "ami-ES2004a", "sys-", out)
+    assert load_gold(index, "ami-ES2004a").scored == [(0.37, pytest.approx(14.53))]
+
+
+def test_the_command_imports_a_meeting_and_scores_with_latency_and_cost(tmp_path: Path) -> None:
+    source = tmp_path / "m1.rttm"
+    source.write_text(RTTM.replace("sys-", "").replace("mic-op", "op"), encoding="utf-8")
+    imported = runner.invoke(
+        app,
+        [
+            "speakers",
+            "import-rttm",
+            "--rttm",
+            str(source),
+            "--meeting",
+            "m1",
+            "--prefix",
+            "sys-",
+            "--out-dir",
+            str(tmp_path / "gold"),
+        ],
+    )
+    assert imported.exit_code == 0, imported.output
+    refused = runner.invoke(
+        app,
+        ["speakers", "import-rttm", "--rttm", str(tmp_path / "gone.rttm"), "--meeting", "x"],
+    )
+    assert refused.exit_code == EXIT_ERROR
+
+    hypothesis = tmp_path / "m1.json"
+    hypothesis.write_text(json.dumps(detail()), encoding="utf-8")
+    log = tmp_path / "record.err"
+    log.write_text(PROBES, encoding="utf-8")
+    scored = runner.invoke(
+        app,
+        [
+            "speakers",
+            "score",
+            "--gold",
+            str(tmp_path / "gold" / "gold.yaml"),
+            "--hypothesis",
+            str(hypothesis),
+            "--mode",
+            "fusion",
+            "--probe-log",
+            str(log),
+            "--cost-usd",
+            "0.38",
+            "--out",
+            str(tmp_path / "score.json"),
+        ],
+    )
+    assert scored.exit_code == 0, scored.output
+    written = json.loads((tmp_path / "score.json").read_text(encoding="utf-8"))
+    assert written["latency"]["lines"] == 3
+    assert written["cost_per_hour_usd"] == pytest.approx(0.57)

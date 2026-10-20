@@ -53,8 +53,14 @@ A meeting of stt-bridge has two channels: the microphone (the operator) and the 
 5. Optional Libraries:
    pyannote.metrics and MeetEval are not dependencies of modebench. Only this command uses them. MeetEval 0.4.3 is a source package only, so its install compiles C++ code and needs a compiler. Add the two libraries for one command with `uv run --with`. Without them, the score does not measure DER, JER, cpWER and tcpWER, and its `not_measured` list tells which library to add.
 
-6. Out of Scope:
-   The latency and the cost per hour of ADR 0001 are not in this score. The latency probe lines of the recorder give the latency. `stt-bridge billing` gives the cost.
+6. Latency and Cost:
+   - With `STT_BRIDGE_LATENCY_PROBE` in its environment, the recorder of stt-bridge writes a probe line when a settled line arrives, when its speaker is recorded, and when a speaker gets a name. A probe line carries labels, never names.
+   - `--probe-log` reads the error stream of the recording. The added latency of attribution is the time from the arrival of a line to the record of its speaker. The name delay of a line is the time from its attribution to the first name of its speaker, for each line said before its speaker had a name. The score gives p50 and p95 of both.
+   - `--cost-usd` takes the total of `stt-bridge billing --meeting`. The cost per hour divides it by the length of the meeting, from its start and its end.
+
+7. Public Sets:
+   - `modebench speakers import-rttm` copies the RTTM and the UEM of one meeting of a public set (AMI, VoxConverse) into the gold set. It puts the channel prefix on each label (`sys-` for a meeting played as the computer audio) and adds the meeting to the index.
+   - stt-bridge plays the audio of the meeting through the whole pipeline with `record --system-file`, and writes the detail with `export --json`. The loudspeakers do not play anything.
 
 ## Consequences
 
@@ -68,13 +74,13 @@ A meeting of stt-bridge has two channels: the microphone (the operator) and the 
 
 ## Commands
 
-Do not run these commands in an automated verification turn. They are for the operator.
-
 ```sh
 make check
+modebench speakers import-rttm --rttm ES2004a.rttm --uem ES2004a.uem \
+  --meeting ES2004a --prefix sys- --out-dir data/private/speakers
 uv run --with pyannote.metrics==4.2.0 --with meeteval==0.4.3 \
   modebench speakers score --gold data/private/speakers/gold.yaml \
-  --hypothesis runs/speakers/native/meeting-12.json --mode native
+  --hypothesis ES2004a.json --mode fusion --probe-log ES2004a.err --cost-usd 0.13
 ```
 
 ## References

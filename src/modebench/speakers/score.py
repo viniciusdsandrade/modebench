@@ -1,7 +1,9 @@
-"""The score of one meeting: every measure of ADR 0001 of stt-bridge that a file can give.
+"""The score of one meeting: every measure of ADR 0001 of stt-bridge.
 
-The latency and the cost per hour are not here. The latency probe lines of the
-recorder give the latency, and `stt-bridge billing` gives the cost.
+The latency comes from the probe lines the recorder wrote to its error stream
+(`modebench.speakers.latency`), and the cost from `stt-bridge billing
+--meeting`, given in dollars; the cost per hour divides it by the length of
+the meeting.
 """
 
 import json
@@ -16,6 +18,7 @@ from modebench.speakers.external import (
 )
 from modebench.speakers.gold import GoldMeeting
 from modebench.speakers.hypothesis import Hypothesis
+from modebench.speakers.latency import SpeakerLatency
 from modebench.speakers.metrics import (
     NameCheck,
     echo_rate,
@@ -56,11 +59,21 @@ class SpeakerScore:
     mapping: dict[str, str]
     names: list[NameCheck] = field(default_factory=list)
     name_threshold_pct: int = APP_NAME_THRESHOLD_PCT
+    latency: SpeakerLatency | None = None
+    duration_s: float | None = None
+    cost_usd: float | None = None
+    cost_per_hour_usd: float | None = None
     not_measured: list[str] = field(default_factory=list)
 
 
 def score_meeting(
-    gold: GoldMeeting, hypothesis: Hypothesis, *, mode: str, external: bool = True
+    gold: GoldMeeting,
+    hypothesis: Hypothesis,
+    *,
+    mode: str,
+    external: bool = True,
+    latency: SpeakerLatency | None = None,
+    cost_usd: float | None = None,
 ) -> SpeakerScore:
     """Return the score of one meeting.
 
@@ -105,6 +118,16 @@ def score_meeting(
     if confusion.rate is None:
         missing.append("operator confusion: no microphone line meets a mic- or sys- turn")
     echo = echo_rate(lines)
+    if latency is None:
+        missing.append("latency: no probe log was given")
+    duration = hypothesis.duration_s
+    cost_per_hour = None
+    if cost_usd is None:
+        missing.append("cost per hour: no cost was given")
+    elif duration is None:
+        missing.append("cost per hour: the meeting has no end")
+    else:
+        cost_per_hour = cost_usd * 3600.0 / duration
 
     return SpeakerScore(
         meeting=gold.id,
@@ -125,6 +148,10 @@ def score_meeting(
         hypothesis_speakers=len(hypothesis.speakers()),
         mapping=mapping,
         names=name_checks(gold.names, hypothesis, mapping),
+        latency=latency,
+        duration_s=duration,
+        cost_usd=cost_usd,
+        cost_per_hour_usd=cost_per_hour,
         not_measured=missing,
     )
 
@@ -137,6 +164,10 @@ def write_score(score: SpeakerScore, path: Path) -> None:
 
 def _percent(value: float | None) -> str:
     return "not measured" if value is None else f"{value * 100:.2f} %"
+
+
+def _ms(value: float | None) -> str:
+    return "not measured" if value is None else f"{value:.0f} ms"
 
 
 def render_score(score: SpeakerScore) -> list[str]:
@@ -155,6 +186,17 @@ def render_score(score: SpeakerScore) -> list[str]:
         f"  echo: {_percent(score.echo_rate)} of the microphone words, "
         f"{_percent(score.echo_marked_rate)} marked",
     ]
+    if score.latency is not None:
+        lines.append(
+            f"  attribution adds {_ms(score.latency.attribution_p50_ms)} p50, "
+            f"{_ms(score.latency.attribution_p95_ms)} p95 over {score.latency.lines} lines; "
+            f"a name reaches an earlier line after {_ms(score.latency.name_delay_p50_ms)} p50, "
+            f"{_ms(score.latency.name_delay_p95_ms)} p95 over {score.latency.named_lines} lines"
+        )
+    if score.cost_per_hour_usd is not None:
+        lines.append(
+            f"  cost: {score.cost_usd:.4f} USD, {score.cost_per_hour_usd:.4f} USD per hour"
+        )
     for check in score.names:
         verdict = {True: "right", False: "wrong", None: "not judged"}[check.correct]
         confidence = "" if check.confidence_pct is None else f", {check.confidence_pct} %"

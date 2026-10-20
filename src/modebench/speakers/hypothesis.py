@@ -18,6 +18,7 @@ application found from a name it was given.
 
 import json
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -66,6 +67,7 @@ class Hypothesis:
     lines: list[HypothesisLine]
     names: dict[str, HypothesisName]
     local: frozenset[str] = frozenset()
+    duration_s: float | None = None
 
     def speakers(self) -> list[str]:
         """Return the speakers of the lines, in the order of their first line."""
@@ -88,6 +90,17 @@ def _key(segment: dict[str, Any], channel: str, attributed: bool) -> str:
     if not attributed and isinstance(speaker, str) and speaker:
         return f"{channel}:{speaker}"
     return f"{channel}:{UNKNOWN}"
+
+
+def _duration_s(detail: dict[str, Any]) -> float | None:
+    started, ended = detail.get("started_at"), detail.get("ended_at")
+    if not isinstance(started, str) or not isinstance(ended, str):
+        return None
+    try:
+        seconds = (datetime.fromisoformat(ended) - datetime.fromisoformat(started)).total_seconds()
+    except ValueError:
+        return None
+    return seconds if seconds > 0 else None
 
 
 def read_hypothesis(document: object, *, mode: str, offset_s: float = 0.0) -> Hypothesis:
@@ -168,6 +181,7 @@ def read_hypothesis(document: object, *, mode: str, offset_s: float = 0.0) -> Hy
         lines=lines,
         names=names,
         local=frozenset(local),
+        duration_s=_duration_s(detail),
     )
 
 

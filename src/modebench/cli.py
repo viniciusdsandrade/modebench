@@ -49,8 +49,9 @@ from modebench.runner.execute import (
     utc_now,
 )
 from modebench.runner.preflight import run_preflight
-from modebench.speakers.gold import load_gold
+from modebench.speakers.gold import import_rttm, load_gold
 from modebench.speakers.hypothesis import MODES, load_hypothesis
+from modebench.speakers.latency import load_speaker_latency
 from modebench.speakers.score import SCORE_SUFFIX, render_score, score_meeting, write_score
 from modebench.stats.aggregate import (
     SUMMARY_NAME,
@@ -511,9 +512,17 @@ def speakers_score(
         Path | None,
         typer.Option(help="Where the score goes. The default is below runs/speakers/<mode>/."),
     ] = None,
+    probe_log: Annotated[
+        Path | None,
+        typer.Option(help="The error stream of the recording, run with STT_BRIDGE_LATENCY_PROBE."),
+    ] = None,
+    cost_usd: Annotated[
+        float | None,
+        typer.Option(help="What the meeting cost, from stt-bridge billing --meeting."),
+    ] = None,
     root: RootOption = Path("."),
 ) -> None:
-    """Score one meeting: DER, JER, WDER, cpWER, tcpWER, names and echo."""
+    """Score one meeting: DER, JER, WDER, cpWER, tcpWER, names, echo, latency and cost."""
     try:
         if mode not in MODES:
             raise ConfigError(f"unknown mode {mode}. Use {', '.join(MODES)}")
@@ -521,12 +530,40 @@ def speakers_score(
         meeting_id = meeting or hypothesis_path.stem
         gold_meeting = load_gold(resolve_path(root, gold), meeting_id)
         found = load_hypothesis(hypothesis_path, mode=mode, offset_s=gold_meeting.offset_s)
-        score = score_meeting(gold_meeting, found, mode=mode)
+        latency = load_speaker_latency(resolve_path(root, probe_log)) if probe_log else None
+        score = score_meeting(gold_meeting, found, mode=mode, latency=latency, cost_usd=cost_usd)
         default = Path("runs") / "speakers" / mode / f"{meeting_id}{SCORE_SUFFIX}"
         target = resolve_path(root, out if out is not None else default)
         write_score(score, target)
         for line in render_score(score):
             typer.echo(line)
         typer.echo(f"wrote {target}")
+    except ModebenchError as error:
+        raise _fail(error) from error
+
+
+@speakers_app.command("import-rttm")
+def speakers_import_rttm(
+    rttm: Annotated[Path, typer.Option(help="The RTTM file of one meeting of a public set.")],
+    meeting: Annotated[str, typer.Option(help="The id the meeting takes in the gold set.")],
+    uem: Annotated[Path | None, typer.Option(help="Its UEM file, when it has one.")] = None,
+    prefix: Annotated[
+        str, typer.Option(help="The channel prefix of every label: sys- or mic-.")
+    ] = "sys-",
+    out_dir: Annotated[Path, typer.Option(help="The gold set directory.")] = Path(
+        "data/private/speakers"
+    ),
+    root: RootOption = Path("."),
+) -> None:
+    """Add one meeting of a public set (AMI, VoxConverse) to the gold set."""
+    try:
+        index = import_rttm(
+            resolve_path(root, rttm),
+            resolve_path(root, uem) if uem else None,
+            meeting,
+            prefix,
+            resolve_path(root, out_dir),
+        )
+        typer.echo(f"wrote {index}")
     except ModebenchError as error:
         raise _fail(error) from error

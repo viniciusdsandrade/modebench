@@ -255,3 +255,71 @@ def load_gold(index_path: Path, meeting_id: str) -> GoldMeeting:
         names=names,
         offset_s=entry.offset_s,
     )
+
+
+def _relabelled_rttm(text: str, meeting_id: str, prefix: str) -> str:
+    lines = []
+    for raw in text.splitlines():
+        fields = raw.split()
+        if len(fields) >= RTTM_FIELDS and fields[0] == SPEAKER_LINE:
+            fields[1] = meeting_id
+            if not fields[7].startswith(prefix):
+                fields[7] = prefix + fields[7]
+            lines.append(" ".join(fields))
+    return "\n".join(lines) + "\n"
+
+
+def _renamed_uem(text: str, meeting_id: str) -> str:
+    lines = []
+    for raw in text.splitlines():
+        fields = raw.split()
+        if len(fields) >= UEM_FIELDS:
+            fields[0] = meeting_id
+            lines.append(" ".join(fields))
+    return "\n".join(lines) + "\n"
+
+
+def import_rttm(
+    rttm_path: Path,
+    uem_path: Path | None,
+    meeting_id: str,
+    prefix: str,
+    out_dir: Path,
+) -> Path:
+    """Add one annotated meeting of a public set to the gold set below `out_dir`.
+
+    Every label gets `prefix` (`sys-` for a meeting played as the computer
+    audio, `mic-` for one played as the microphone), because the side of a
+    reference speaker is read from its label. The files are copied under the
+    meeting id, and the meeting is added to `gold.yaml`, replacing an entry
+    of the same id. The answer is the path of the index.
+    """
+    rttm_text = _read(rttm_path)
+    parse_rttm(rttm_text, str(rttm_path))
+    out_dir.mkdir(parents=True, exist_ok=True)
+    (out_dir / f"{meeting_id}.rttm").write_text(
+        _relabelled_rttm(rttm_text, meeting_id, prefix), encoding="utf-8"
+    )
+    entry: dict[str, object] = {"id": meeting_id, "rttm": f"{meeting_id}.rttm"}
+    if uem_path is not None:
+        uem_text = _read(uem_path)
+        parse_uem(uem_text, str(uem_path))
+        (out_dir / f"{meeting_id}.uem").write_text(
+            _renamed_uem(uem_text, meeting_id), encoding="utf-8"
+        )
+        entry["uem"] = f"{meeting_id}.uem"
+
+    index_path = out_dir / "gold.yaml"
+    meetings: list[dict[str, object]] = []
+    if index_path.exists():
+        meetings = [
+            item.model_dump(mode="json", exclude_defaults=True)
+            for item in load_index(index_path).meetings
+            if item.id != meeting_id
+        ]
+    meetings.append(entry)
+    index_path.write_text(
+        yaml.safe_dump({"meetings": meetings}, sort_keys=False, allow_unicode=True),
+        encoding="utf-8",
+    )
+    return index_path
